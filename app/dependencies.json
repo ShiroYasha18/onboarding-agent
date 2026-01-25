@@ -1,0 +1,83 @@
+{
+  "warehouse": {
+    "invalidates": [
+      "hotel_basic_details",
+      "registration_details",
+      "billing_address",
+      "shipping_address",
+      "hotel_contact_persons",
+      "agreement_details",
+      "price_list",
+      "customer_user",
+      "inventory_pool",
+      "inventory_reservation"
+    ],
+    "reason": "All hotels, agreements, users, pricing, pools, and reservations are warehouse-scoped in Flash"
+  },
+
+  "hotel_basic_details": {
+    "invalidates": [
+      "agreement_details",
+      "price_list",
+      "customer_user",
+      "inventory_reservation"
+    ],
+    "reason": "Agreement, pricing, users, and reservations are tied to the hotel identity"
+  },
+
+  "registration_details": {
+    "invalidates": [
+      "agreement_details"
+    ],
+    "reason": "Legal identifiers affect agreement validity"
+  },
+
+  "billing_address": {
+    "invalidates": [],
+    "reason": "Billing address changes do not affect operational or inventory setup"
+  },
+
+  "shipping_address": {
+    "invalidates": [
+      "inventory_reservation"
+    ],
+    "reason": "Inventory delivery and reservation depend on shipping location"
+  },
+
+  "hotel_contact_persons": {
+    "invalidates": [],
+    "reason": "Contact persons are communication-only and do not affect downstream configuration"
+  },
+
+  "agreement_details": {
+    "invalidates": [
+      "price_list",
+      "inventory_reservation"
+    ],
+    "reason": "Pricing and inventory reservation depend on commercial agreement terms"
+  },
+
+  "price_list": {
+    "invalidates": [
+      "inventory_reservation"
+    ],
+    "reason": "Reservation quantities and items depend on configured pricing"
+  },
+
+  "customer_user": {
+    "invalidates": [],
+    "reason": "Customer users are login entities and do not affect pricing or inventory"
+  },
+
+  "inventory_pool": {
+    "invalidates": [
+      "inventory_reservation"
+    ],
+    "reason": "Reservation must reference the correct inventory pool"
+  },
+
+  "inventory_reservation": {
+    "invalidates": [],
+    "reason": "Final step – no downstream dependencies"
+  }
+}

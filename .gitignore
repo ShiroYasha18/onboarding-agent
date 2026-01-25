@@ -1,0 +1,39 @@
+.DS_Store
+.python-version
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments
+.env
+**/.env
+.venv/
+venv/
+env/
+
+# Editors/IDEs
+.vscode/
+.idea/
+
+# Local app state
+*.log
+
+# Node/Electron
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+build/
+
+# Vercel
+.vercel/

@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+redis
+langgraph
+pydantic
+google-generativeai

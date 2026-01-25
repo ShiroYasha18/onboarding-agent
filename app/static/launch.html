@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flash Onboarding</title>
+    <style>
+      :root {
+        --bg: #0b0f1a;
+        --panel: rgba(255, 255, 255, 0.06);
+        --border: rgba(255, 255, 255, 0.12);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.62);
+        --brand: #7c5cff;
+        --brand2: #3cc7ff;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        background: radial-gradient(1200px 600px at 20% 0%, rgba(124, 92, 255, 0.22), transparent 55%),
+          radial-gradient(900px 600px at 90% 10%, rgba(60, 199, 255, 0.16), transparent 60%), var(--bg);
+        color: var(--text);
+      }
+      .wrap {
+        height: 100%;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+      }
+      .card {
+        width: min(720px, 96vw);
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        padding: 22px;
+        box-shadow: 0 22px 60px rgba(0, 0, 0, 0.35);
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .left {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, var(--brand), var(--brand2));
+        box-shadow: 0 0 18px rgba(124, 92, 255, 0.55);
+      }
+      .title {
+        font-weight: 650;
+        letter-spacing: 0.2px;
+      }
+      .sub {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        padding: 10px 12px;
+        border-radius: 12px;
+        cursor: pointer;
+      }
+      .btn.primary {
+        background: linear-gradient(180deg, rgba(124, 92, 255, 0.7), rgba(124, 92, 255, 0.42));
+        border-color: rgba(124, 92, 255, 0.75);
+      }
+      code {
+        display: block;
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.25);
+        color: rgba(255, 255, 255, 0.86);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+      .status {
+        margin-top: 14px;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.7);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="row">
+          <div class="left">
+            <div class="dot"></div>
+            <div class="title">Flash Onboarding</div>
+          </div>
+          <button class="btn primary" id="open" type="button">Open UI</button>
+        </div>
+        <div class="sub">
+          Browsers cannot start local backend processes automatically when you open a static HTML file.
+          This page checks if the backend is already running and then opens the UI.
+          If it isn’t running, start it once using the command below.
+        </div>
+        <code>cd "flash-onboarding-agent"
+python -m app</code>
+        <div class="status" id="status">Checking backend…</div>
+      </div>
+    </div>
+    <script>
+      const HOST = "127.0.0.1";
+      const PORT_START = 8002;
+      const PORT_TRIES = 20;
+      const statusEl = document.getElementById("status");
+      const openBtn = document.getElementById("open");
+      let discoveredBase = null;
+
+      async function isUp(base) {
+        try {
+          const res = await fetch(`${base}/health`, { cache: "no-store" });
+          return res.ok;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      async function openUI() {
+        const base = discoveredBase || `http://${HOST}:${PORT_START}`;
+        window.location.href = `${base}/`;
+      }
+
+      openBtn.addEventListener("click", openUI);
+
+      async function findBackend() {
+        for (let i = 0; i < PORT_TRIES; i++) {
+          const port = PORT_START + i;
+          const base = `http://${HOST}:${port}`;
+          if (await isUp(base)) return base;
+        }
+        return null;
+      }
+
+      (async function init() {
+        discoveredBase = await findBackend();
+        if (discoveredBase) {
+          statusEl.textContent = `Backend is running (${discoveredBase}). Redirecting…`;
+          setTimeout(openUI, 350);
+          return;
+        }
+        statusEl.textContent = "Backend is not running.";
+      })();
+    </script>
+  </body>
+</html>

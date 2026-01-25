@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flash Onboarding</title>
+    <style>
+      :root {
+        --bg: #0b0f1a;
+        --panel: rgba(255, 255, 255, 0.06);
+        --panel-2: rgba(255, 255, 255, 0.08);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.62);
+        --border: rgba(255, 255, 255, 0.12);
+        --brand: #7c5cff;
+        --brand-2: #3cc7ff;
+        --danger: #ff4d6d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji",
+          "Segoe UI Emoji";
+        background: radial-gradient(1200px 600px at 20% 0%, rgba(124, 92, 255, 0.22), transparent 55%),
+          radial-gradient(900px 600px at 90% 10%, rgba(60, 199, 255, 0.16), transparent 60%), var(--bg);
+        color: var(--text);
+      }
+
+      .app {
+        height: 100%;
+        display: grid;
+        grid-template-columns: minmax(520px, 1.65fr) minmax(360px, 1fr);
+        gap: 16px;
+        padding: 16px;
+      }
+
+      .card {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 22px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 14px 12px 14px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.18);
+        backdrop-filter: blur(8px);
+      }
+
+      .title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 650;
+        letter-spacing: 0.2px;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, var(--brand), var(--brand-2));
+        box-shadow: 0 0 18px rgba(124, 92, 255, 0.55);
+      }
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .input {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 12px;
+        padding: 10px 12px;
+        outline: none;
+      }
+
+      .input::placeholder {
+        color: rgba(255, 255, 255, 0.45);
+      }
+
+      .btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        padding: 10px 12px;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: transform 0.08s ease, background 0.12s ease, border-color 0.12s ease;
+        user-select: none;
+      }
+
+      .btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.18);
+      }
+
+      .btn:active {
+        transform: translateY(1px);
+      }
+
+      .btn.primary {
+        background: linear-gradient(180deg, rgba(124, 92, 255, 0.7), rgba(124, 92, 255, 0.42));
+        border-color: rgba(124, 92, 255, 0.75);
+      }
+
+      .btn.primary:hover {
+        background: linear-gradient(180deg, rgba(124, 92, 255, 0.82), rgba(124, 92, 255, 0.5));
+      }
+
+      .btn.danger {
+        border-color: rgba(255, 77, 109, 0.55);
+        background: rgba(255, 77, 109, 0.12);
+      }
+
+      .chat {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        height: 100%;
+      }
+
+      .messages {
+        padding: 14px;
+        overflow: auto;
+      }
+
+      .meta-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .pill {
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .bubble-row {
+        display: flex;
+        margin: 12px 0;
+      }
+
+      .bubble-row.user {
+        justify-content: flex-end;
+      }
+
+      .bubble {
+        max-width: 78%;
+        padding: 12px 12px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        line-height: 1.35;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .bubble.bot {
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .bubble.user {
+        background: linear-gradient(180deg, rgba(60, 199, 255, 0.18), rgba(124, 92, 255, 0.18));
+        border-color: rgba(124, 92, 255, 0.38);
+      }
+
+      .composer {
+        padding: 12px;
+        border-top: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.18);
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+      }
+
+      .composer textarea {
+        height: 46px;
+        resize: none;
+        font-size: 14px;
+        padding: 12px 12px;
+      }
+
+      .side {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100%;
+      }
+
+      .preview {
+        padding: 12px;
+        overflow: auto;
+      }
+
+      .kv {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: start;
+        padding: 10px 10px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.04);
+        margin-bottom: 10px;
+      }
+
+      .k {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.72);
+        margin-bottom: 6px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      }
+
+      .v {
+        font-size: 14px;
+        color: var(--text);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .edit-box {
+        display: none;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .edit-box.active {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+      }
+
+      .small {
+        padding: 8px 10px;
+        border-radius: 10px;
+        font-size: 13px;
+      }
+
+      .note {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 10px 12px 12px 12px;
+      }
+
+      @media (max-width: 980px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="card chat">
+        <div class="header">
+          <div class="title">
+            <span class="dot"></span>
+            <span>Flash Onboarding</span>
+          </div>
+          <div class="controls">
+            <input id="tenantId" class="input" type="text" placeholder="tenant_id (optional)">
+            <button id="newSession" class="btn primary" type="button">New session</button>
+          </div>
+        </div>
+        <div class="messages" id="messages">
+          <div class="meta-row">
+            <span class="pill" id="sessionPill">Session: —</span>
+            <span class="pill" id="stepPill">Step: —</span>
+            <span class="pill" id="progressPill">Progress: —</span>
+          </div>
+          <div class="note" id="note">
+            Start a new session to begin. You can edit any captured field from the right panel and the bot will ask
+            downstream fields again when needed.
+          </div>
+        </div>
+        <div class="composer">
+          <textarea id="input" class="input" placeholder="Type your answer… (Enter to send, Shift+Enter for newline)"></textarea>
+          <button id="send" class="btn primary" type="button">Send</button>
+        </div>
+      </div>
+
+      <div class="card side">
+        <div class="header">
+          <div class="title">
+            <span class="dot"></span>
+            <span>Captured</span>
+          </div>
+          <div class="controls">
+            <button id="clearLocal" class="btn danger" type="button">Clear local</button>
+          </div>
+        </div>
+        <div class="preview" id="preview"></div>
+      </div>
+    </div>
+
+    <script>
+      const state = {
+        sessionId: null,
+        currentStep: null,
+        data: {},
+        completedSteps: [],
+        questions: [],
+        groups: [],
+        labelById: {},
+      };
+
+      const el = {
+        messages: document.getElementById("messages"),
+        preview: document.getElementById("preview"),
+        input: document.getElementById("input"),
+        send: document.getElementById("send"),
+        newSession: document.getElementById("newSession"),
+        tenantId: document.getElementById("tenantId"),
+        clearLocal: document.getElementById("clearLocal"),
+        sessionPill: document.getElementById("sessionPill"),
+        stepPill: document.getElementById("stepPill"),
+        progressPill: document.getElementById("progressPill"),
+        note: document.getElementById("note"),
+      };
+
+      function saveLocal() {
+        const payload = {
+          sessionId: state.sessionId,
+          currentStep: state.currentStep,
+          data: state.data,
+          completedSteps: state.completedSteps,
+        };
+        localStorage.setItem("flash_onboarding", JSON.stringify(payload));
+      }
+
+      function loadLocal() {
+        try {
+          const raw = localStorage.getItem("flash_onboarding");
+          if (!raw) return;
+          const payload = JSON.parse(raw);
+          state.sessionId = payload.sessionId || null;
+          state.currentStep = payload.currentStep || null;
+          state.data = payload.data || {};
+          state.completedSteps = payload.completedSteps || [];
+        } catch (_) {}
+      }
+
+      async function api(path, opts = {}) {
+        const res = await fetch(path, {
+          headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+          ...opts,
+        });
+        const text = await res.text();
+        let json;
+        try {
+          json = text ? JSON.parse(text) : {};
+        } catch (_) {
+          json = { raw: text };
+        }
+        if (!res.ok) {
+          const msg = json?.detail || json?.message || `Request failed: ${res.status}`;
+          throw new Error(msg);
+        }
+        return json;
+      }
+
+      function addMessage(role, content) {
+        el.note.style.display = "none";
+        const row = document.createElement("div");
+        row.className = `bubble-row ${role}`;
+        const bubble = document.createElement("div");
+        bubble.className = `bubble ${role === "user" ? "user" : "bot"}`;
+        bubble.textContent = content;
+        row.appendChild(bubble);
+        el.messages.appendChild(row);
+        el.messages.scrollTop = el.messages.scrollHeight;
+      }
+
+      function formatValue(v) {
+        if (v === null || v === undefined) return "—";
+        if (typeof v === "string") return v;
+        try {
+          return JSON.stringify(v, null, 2);
+        } catch (_) {
+          return String(v);
+        }
+      }
+
+      function setHeader() {
+        el.sessionPill.textContent = `Session: ${state.sessionId || "—"}`;
+        el.stepPill.textContent = `Step: ${state.currentStep || "—"}`;
+        const total = state.questions.length || 0;
+        const done = state.completedSteps.length || 0;
+        el.progressPill.textContent = total ? `Progress: ${done}/${total}` : "Progress: —";
+      }
+
+      function buildLabelMap() {
+        const map = {};
+        for (const q of state.questions || []) {
+          if (q && q.id) map[q.id] = q.label || q.prompt || q.id;
+        }
+        state.labelById = map;
+      }
+
+      function renderRow(stepId) {
+        const value = (state.data || {})[stepId];
+
+        const row = document.createElement("div");
+        row.className = "kv";
+
+        const left = document.createElement("div");
+        const k = document.createElement("div");
+        k.className = "k";
+        const label = state.labelById?.[stepId] || stepId;
+        k.textContent = label === stepId ? stepId : `${label}  ·  ${stepId}`;
+
+        const v = document.createElement("div");
+        v.className = "v";
+        v.textContent = formatValue(value);
+
+        const editBox = document.createElement("div");
+        editBox.className = "edit-box";
+
+        const input = document.createElement("input");
+        input.className = "input small";
+        input.value = value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value);
+
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "btn primary small";
+        saveBtn.textContent = "Save";
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "btn small";
+        cancelBtn.textContent = "Cancel";
+
+        editBox.appendChild(input);
+        editBox.appendChild(saveBtn);
+        editBox.appendChild(cancelBtn);
+
+        left.appendChild(k);
+        left.appendChild(v);
+        left.appendChild(editBox);
+
+        const right = document.createElement("div");
+        const editBtn = document.createElement("button");
+        editBtn.className = "btn small";
+        editBtn.textContent = "Edit";
+        right.appendChild(editBtn);
+
+        editBtn.onclick = () => {
+          editBox.classList.add("active");
+          input.focus();
+        };
+        cancelBtn.onclick = () => {
+          editBox.classList.remove("active");
+        };
+        saveBtn.onclick = async () => {
+          const raw = input.value;
+          let parsed = raw;
+          const trimmed = raw.trim();
+          if (!trimmed) parsed = null;
+          else if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            try {
+              parsed = JSON.parse(trimmed);
+            } catch (_) {
+              parsed = trimmed;
+            }
+          } else if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+            parsed = trimmed.includes(".") ? Number.parseFloat(trimmed) : Number.parseInt(trimmed, 10);
+          }
+
+          try {
+            const resp = await api("/chat", {
+              method: "POST",
+              body: JSON.stringify({ session_id: state.sessionId, action: "set", step_id: stepId, value: parsed }),
+            });
+            state.currentStep = resp.current_step;
+            state.data = resp.data || {};
+            state.completedSteps = resp.completed_steps || [];
+            setHeader();
+            renderPreview();
+            addMessage("bot", resp.reply || "Updated.");
+            editBox.classList.remove("active");
+            saveLocal();
+          } catch (e) {
+            addMessage("bot", `Update failed: ${e.message}`);
+          }
+        };
+
+        row.appendChild(left);
+        row.appendChild(right);
+        return row;
+      }
+
+      function renderPreview() {
+        el.preview.innerHTML = "";
+        const groups = state.groups || [];
+        if (groups.length) {
+          for (const g of groups) {
+            const header = document.createElement("div");
+            header.className = "note";
+            header.style.margin = "12px 2px 8px 2px";
+            header.style.padding = "0";
+            header.style.fontSize = "13px";
+            header.style.color = "rgba(255,255,255,0.82)";
+            header.textContent = g.label || g.id;
+            el.preview.appendChild(header);
+
+            for (const stepId of g.step_ids || []) {
+              el.preview.appendChild(renderRow(stepId));
+            }
+          }
+          return;
+        }
+
+        const entries = Object.entries(state.data || {}).filter(([k]) => k && !k.startsWith("_"));
+        entries.sort(([a], [b]) => a.localeCompare(b));
+
+        if (!entries.length) {
+          const empty = document.createElement("div");
+          empty.className = "note";
+          empty.textContent = "No data captured yet.";
+          el.preview.appendChild(empty);
+          return;
+        }
+
+        for (const [key] of entries) {
+          el.preview.appendChild(renderRow(key));
+        }
+      }
+
+      async function refreshQuestions() {
+        try {
+          const q = await api("/questions");
+          state.questions = q.questions || [];
+          state.groups = q.groups || [];
+          buildLabelMap();
+          setHeader();
+        } catch (_) {}
+      }
+
+      async function startSession() {
+        const tenantId = (el.tenantId.value || "").trim() || "default";
+        const resp = await api(`/start?tenant_id=${encodeURIComponent(tenantId)}`, { method: "POST" });
+        state.sessionId = resp.session_id;
+        state.currentStep = resp.current_step;
+        state.data = resp.data || {};
+        state.completedSteps = resp.completed_steps || [];
+
+        el.messages.querySelectorAll(".bubble-row").forEach((n) => n.remove());
+        addMessage("bot", resp.reply || "Let’s start.");
+        setHeader();
+        renderPreview();
+        saveLocal();
+      }
+
+      async function sendMessage() {
+        const text = el.input.value;
+        if (!state.sessionId) {
+          addMessage("bot", "Start a new session first.");
+          return;
+        }
+        const trimmed = text.trim();
+        if (!trimmed) return;
+
+        el.input.value = "";
+        addMessage("user", trimmed);
+        try {
+          const resp = await api("/chat", {
+            method: "POST",
+            body: JSON.stringify({ session_id: state.sessionId, message: trimmed }),
+          });
+          state.currentStep = resp.current_step;
+          state.data = resp.data || {};
+          state.completedSteps = resp.completed_steps || [];
+          addMessage("bot", resp.reply || "OK.");
+          setHeader();
+          renderPreview();
+          saveLocal();
+        } catch (e) {
+          addMessage("bot", `Error: ${e.message}`);
+        }
+      }
+
+      el.send.onclick = () => sendMessage();
+      el.newSession.onclick = async () => {
+        try {
+          await startSession();
+        } catch (e) {
+          addMessage("bot", `Could not start: ${e.message}`);
+        }
+      };
+      el.clearLocal.onclick = () => {
+        localStorage.removeItem("flash_onboarding");
+        state.sessionId = null;
+        state.currentStep = null;
+        state.data = {};
+        state.completedSteps = [];
+        setHeader();
+        renderPreview();
+        addMessage("bot", "Local state cleared.");
+      };
+
+      el.input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      (async function init() {
+        loadLocal();
+        await refreshQuestions();
+        setHeader();
+        renderPreview();
+        if (state.sessionId) {
+          addMessage("bot", "Session restored from local storage.");
+        }
+      })();
+    </script>
+  </body>
+</html>

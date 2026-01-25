@@ -1,0 +1,536 @@
+{
+  "version": "1.0",
+  "flow_name": "flash_hotel_onboarding",
+
+  "questions": [
+    {
+      "id": "warehouse",
+      "order": 1,
+      "label": "Warehouse",
+      "prompt": "Which warehouse should this hotel belong to? (YPR/JPN)",
+      "type": "enum",
+      "options": ["YPR", "JPN"],
+      "required": true
+    },
+
+    {
+      "id": "hotel_basic_details.hotel_name",
+      "order": 2,
+      "label": "Hotel name",
+      "prompt": "What’s the hotel name?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "hotel_basic_details.contact_phone",
+      "order": 3,
+      "label": "Contact phone",
+      "prompt": "What’s the contact phone number?",
+      "type": "phone",
+      "required": true
+    },
+
+    {
+      "id": "hotel_basic_details.contact_email",
+      "order": 4,
+      "label": "Contact email",
+      "prompt": "What’s the contact email?",
+      "type": "email",
+      "required": true
+    },
+
+    {
+      "id": "hotel_basic_details.status",
+      "order": 5,
+      "label": "Hotel status",
+      "prompt": "What’s the hotel status? (Active/Inactive)",
+      "type": "enum",
+      "options": ["Active", "Inactive"],
+      "required": true
+    },
+
+    {
+      "id": "hotel_basic_details.customer_type",
+      "order": 6,
+      "label": "Customer type",
+      "prompt": "What’s the customer type? (HOTEL/HOSPITAL/RESTAURANT/CORPORATE/OTHER)",
+      "type": "enum",
+      "options": ["HOTEL", "HOSPITAL", "RESTAURANT", "CORPORATE", "OTHER"],
+      "required": true
+    },
+
+    {
+      "id": "registration_details.gstin_number",
+      "order": 7,
+      "label": "GSTIN number",
+      "prompt": "What’s the GSTIN number?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "registration_details.pan_number",
+      "order": 8,
+      "label": "PAN number",
+      "prompt": "What’s the PAN number?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "billing_address.address_line_1",
+      "order": 9,
+      "label": "Billing address line 1",
+      "prompt": "Billing address: address line 1?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "billing_address.address_line_2",
+      "order": 10,
+      "label": "Billing address line 2",
+      "prompt": "Billing address: address line 2? (optional — type skip to leave empty)",
+      "type": "text",
+      "optional": true
+    },
+
+    {
+      "id": "billing_address.city",
+      "order": 11,
+      "label": "Billing city",
+      "prompt": "Billing address: city?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "billing_address.state",
+      "order": 12,
+      "label": "Billing state",
+      "prompt": "Billing address: state?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "billing_address.zip_code",
+      "order": 13,
+      "label": "Billing ZIP code",
+      "prompt": "Billing address: ZIP/postal code?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "billing_address.country",
+      "order": 14,
+      "label": "Billing country",
+      "prompt": "Billing address: country? (default India)",
+      "type": "text",
+      "default": "India",
+      "optional": true
+    },
+
+    {
+      "id": "shipping_address.same_as_billing",
+      "order": 15,
+      "label": "Shipping same as billing",
+      "prompt": "Is the shipping address the same as billing? (yes/no)",
+      "type": "enum",
+      "options": ["yes", "no"],
+      "required": true
+    },
+
+    {
+      "id": "shipping_address.address_line_1",
+      "order": 16,
+      "label": "Shipping address line 1",
+      "prompt": "Shipping address: address line 1?",
+      "type": "text",
+      "required": true,
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+    },
+
+    {
+      "id": "shipping_address.address_line_2",
+      "order": 17,
+      "label": "Shipping address line 2",
+      "prompt": "Shipping address: address line 2? (optional — type skip to leave empty)",
+      "type": "text",
+      "optional": true,
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+    },
+
+    {
+      "id": "shipping_address.city",
+      "order": 18,
+      "label": "Shipping city",
+      "prompt": "Shipping address: city?",
+      "type": "text",
+      "required": true,
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+    },
+
+    {
+      "id": "shipping_address.state",
+      "order": 19,
+      "label": "Shipping state",
+      "prompt": "Shipping address: state?",
+      "type": "text",
+      "required": true,
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+    },
+
+    {
+      "id": "shipping_address.zip_code",
+      "order": 20,
+      "label": "Shipping ZIP code",
+      "prompt": "Shipping address: ZIP/postal code?",
+      "type": "text",
+      "required": true,
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+    },
+
+    {
+      "id": "shipping_address.country",
+      "order": 21,
+      "label": "Shipping country",
+      "prompt": "Shipping address: country? (default India)",
+      "type": "text",
+      "default": "India",
+      "optional": true,
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+    },
+
+    {
+      "id": "hotel_contact_persons.primary.name",
+      "order": 22,
+      "label": "Primary contact name",
+      "prompt": "Who’s the primary contact person’s name?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "hotel_contact_persons.primary.phone",
+      "order": 23,
+      "label": "Primary contact phone",
+      "prompt": "Primary contact phone number?",
+      "type": "phone",
+      "required": true
+    },
+
+    {
+      "id": "hotel_contact_persons.primary.email",
+      "order": 24,
+      "label": "Primary contact email",
+      "prompt": "Primary contact email?",
+      "type": "email",
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.agreement_type",
+      "order": 25,
+      "label": "Agreement type",
+      "prompt": "Agreement type? (Rental Laundry/Laundry)",
+      "type": "enum",
+      "options": ["Rental Laundry", "Laundry"],
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.service_start_date",
+      "order": 26,
+      "label": "Service start date",
+      "prompt": "Service start date? (YYYY-MM-DD)",
+      "type": "date",
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.service_end_date",
+      "order": 27,
+      "label": "Service end date",
+      "prompt": "Service end date? (YYYY-MM-DD)",
+      "type": "date",
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.status",
+      "order": 28,
+      "label": "Agreement status",
+      "prompt": "Agreement status? (Active/Inactive)",
+      "type": "enum",
+      "options": ["Active", "Inactive"],
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.total_rooms",
+      "order": 29,
+      "label": "Total rooms",
+      "prompt": "Total rooms?",
+      "type": "number",
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.occupancy_rate",
+      "order": 30,
+      "label": "Occupancy rate",
+      "prompt": "Occupancy rate? (optional, default 0)",
+      "type": "number",
+      "default": 0,
+      "optional": true
+    },
+
+    {
+      "id": "agreement_details.deposit_amount",
+      "order": 31,
+      "label": "Deposit amount",
+      "prompt": "Deposit amount?",
+      "type": "number",
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.credit_days",
+      "order": 32,
+      "label": "Credit days",
+      "prompt": "Credit days? (15/30)",
+      "type": "enum",
+      "options": ["15", "30"],
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.linen_delivery_days",
+      "order": 33,
+      "label": "Linen delivery days",
+      "prompt": "Linen delivery days? (Daily/Alternate)",
+      "type": "enum",
+      "options": ["Daily", "Alternate"],
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.service_frequency",
+      "order": 34,
+      "label": "Service frequency",
+      "prompt": "Service frequency?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.billing_cycle",
+      "order": 35,
+      "label": "Billing cycle",
+      "prompt": "Billing cycle? (15/30)",
+      "type": "enum",
+      "options": ["15", "30"],
+      "required": true
+    },
+
+    {
+      "id": "agreement_details.billing_start_day",
+      "order": 36,
+      "label": "Billing start day",
+      "prompt": "Billing start day? (default 1)",
+      "type": "number",
+      "default": 1,
+      "optional": true
+    },
+
+    {
+      "id": "agreement_details.billing_end_day",
+      "order": 37,
+      "label": "Billing end day",
+      "prompt": "Billing end day? (default 15)",
+      "type": "number",
+      "default": 15,
+      "optional": true
+    },
+
+    {
+      "id": "agreement_details.billing_type",
+      "order": 38,
+      "label": "Billing type",
+      "prompt": "Billing type? (Fixed)",
+      "type": "enum",
+      "options": ["Fixed"],
+      "required": true
+    },
+
+    {
+      "id": "price_list.items",
+      "order": 39,
+      "label": "Price list items",
+      "prompt": "Provide price list items as JSON array. Example: [{\"product_item\":\"Bedsheet\",\"quantity\":100,\"price\":12.5,\"service_type\":\"Washing\"}]",
+      "type": "json",
+      "required": true
+    },
+
+    {
+      "id": "customer_user.customer_name",
+      "order": 40,
+      "label": "Customer user name",
+      "prompt": "Customer user: name?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "customer_user.email",
+      "order": 41,
+      "label": "Customer user email",
+      "prompt": "Customer user: email?",
+      "type": "email",
+      "required": true
+    },
+
+    {
+      "id": "customer_user.phone",
+      "order": 42,
+      "label": "Customer user phone",
+      "prompt": "Customer user: phone?",
+      "type": "phone",
+      "required": true
+    },
+
+    {
+      "id": "customer_user.password",
+      "order": 43,
+      "label": "Customer user password",
+      "prompt": "Customer user: password?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "customer_user.role",
+      "order": 44,
+      "label": "Customer user role",
+      "prompt": "Customer user: role?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "inventory_pool.want_pool",
+      "order": 45,
+      "label": "Create inventory pool",
+      "prompt": "Do you want to create a dedicated inventory pool? (yes/no)",
+      "type": "enum",
+      "options": ["yes", "no"],
+      "required": true
+    },
+
+    {
+      "id": "inventory_pool.pool_name",
+      "order": 46,
+      "label": "Inventory pool name",
+      "prompt": "Inventory pool: name?",
+      "type": "text",
+      "required": true,
+      "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" }
+    },
+
+    {
+      "id": "inventory_pool.description",
+      "order": 47,
+      "label": "Inventory pool description",
+      "prompt": "Inventory pool: description? (optional — type skip to leave empty)",
+      "type": "text",
+      "optional": true,
+      "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" }
+    },
+
+    {
+      "id": "inventory_pool.products",
+      "order": 48,
+      "label": "Inventory pool products",
+      "prompt": "Inventory pool: products? (comma-separated)",
+      "type": "list",
+      "required": true,
+      "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" }
+    },
+
+    {
+      "id": "inventory_reservation.customer_name",
+      "order": 49,
+      "label": "Reservation customer name",
+      "prompt": "Reservation: customer name?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "inventory_reservation.reservation_type",
+      "order": 50,
+      "label": "Reservation type",
+      "prompt": "Reservation type? (Fixed/Flexible/Rotational)",
+      "type": "enum",
+      "options": ["Fixed", "Flexible", "Rotational"],
+      "required": true
+    },
+
+    {
+      "id": "inventory_reservation.inventory_pool",
+      "order": 51,
+      "label": "Reservation inventory pool",
+      "prompt": "Reservation: inventory pool name/id?",
+      "type": "text",
+      "required": true
+    },
+
+    {
+      "id": "inventory_reservation.start_date",
+      "order": 52,
+      "label": "Reservation start date",
+      "prompt": "Reservation start date? (YYYY-MM-DD)",
+      "type": "date",
+      "required": true
+    },
+
+    {
+      "id": "inventory_reservation.end_date",
+      "order": 53,
+      "label": "Reservation end date",
+      "prompt": "Reservation end date? (YYYY-MM-DD)",
+      "type": "date",
+      "required": true
+    },
+
+    {
+      "id": "inventory_reservation.total_quantity",
+      "order": 54,
+      "label": "Total quantity",
+      "prompt": "Reservation: total quantity?",
+      "type": "number",
+      "required": true
+    },
+
+    {
+      "id": "inventory_reservation.quantity_with_customer",
+      "order": 55,
+      "label": "Quantity with customer",
+      "prompt": "Reservation: quantity with customer?",
+      "type": "number",
+      "required": true
+    },
+
+    {
+      "id": "inventory_reservation.quantity_with_dc",
+      "order": 56,
+      "label": "Quantity with DC",
+      "prompt": "Reservation: quantity with DC?",
+      "type": "number",
+      "required": true
+    }
+  ]
+}
