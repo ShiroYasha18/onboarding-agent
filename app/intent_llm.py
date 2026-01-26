@@ -99,6 +99,8 @@ EXTRACTION RULES:
 - If the user provides partial information, extract only that part.
 - If the user repeats an existing value, return it again.
 - If the user gives multiple fields in one sentence, extract all of them.
+- If the user provides multiple fields across different steps, return ALL of them in "value" as a map of step_id -> value.
+- Do NOT pack multiple fields into one value (e.g. don't put email+phone inside hotel_name).
 - If dates are mentioned, normalize them to YYYY-MM-DD if possible.
 - If confidence is low, set confidence below 0.6 and use intent "unknown".
 """
@@ -112,6 +114,38 @@ def extract_intent(
     known_data: dict[str, Any],
     step_definitions: list[dict[str, Any]] | None = None,
 ) -> Intent:
+    api_key = os.getenv("GEMINI_API_KEY")
+    mode = (os.getenv("INTENT_EXTRACTION_MODE") or ("llm_first" if api_key else "hybrid")).strip().lower()
+
+    if mode in {"llm_first", "llm-only", "llm_only"} and api_key:
+        intent = _extract_with_gemini(
+            api_key=api_key,
+            message=message,
+            current_step=current_step,
+            all_step_ids=all_step_ids,
+            current_step_fields=current_step_fields,
+            known_data=known_data,
+            step_definitions=step_definitions,
+        )
+        if intent is not None:
+            intent.source = "llm"
+            if intent.intent != "unknown" or float(intent.confidence or 0.0) >= 0.6:
+                if intent.intent == "answer" and isinstance(intent.value, dict) and intent.value:
+                    supplement = _extract_with_heuristics(
+                        message=message,
+                        current_step=current_step,
+                        known_data=known_data,
+                        steps=all_step_ids,
+                        step_definitions=step_definitions,
+                    )
+                    if supplement.intent == "answer" and isinstance(supplement.value, dict) and supplement.value:
+                        merged = dict(intent.value)
+                        for k, v in supplement.value.items():
+                            if k not in merged:
+                                merged[k] = v
+                        intent.value = merged
+                return intent
+
     heuristic = _extract_with_heuristics(
         message=message,
         current_step=current_step,
@@ -127,7 +161,6 @@ def extract_intent(
         heuristic.source = "heuristic"
         return heuristic
 
-    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         heuristic.source = "heuristic"
         return heuristic
@@ -261,36 +294,6 @@ def _map_natural_language_edits(
     steps: list[str],
     step_definitions: list[dict[str, Any]] | None,
 ) -> Intent | None:
-    extracted: dict[str, Any] = {}
-
-    if "hotel_basic_details.hotel_name" in steps:
-        m = re.search(
-            r"\b(?:my\s+)?hotel\s+(?:name\s+)?is\s+(.+?)(?=\b(?:we|phone|mobile|contact|gstin|gst|and)\b|[,.\n]|$)",
-            text,
-            flags=re.I,
-        )
-        if m:
-            name = (m.group(1) or "").strip()
-            if name:
-                extracted["hotel_basic_details.hotel_name"] = _coerce_value(name)
-
-    gstin_match = re.search(r"\b(?:gstin|gst)\b(?:\s*(?:number)?\s*(?:is|=|:))?\s*([0-9A-Z]{15})\b", text, flags=re.I)
-    if gstin_match and "registration_details.gstin_number" in steps:
-        extracted["registration_details.gstin_number"] = gstin_match.group(1).upper()
-
-    if ("same billing" in lowered or "same as billing" in lowered) and "shipping_address.same_as_billing" in steps:
-        extracted["shipping_address.same_as_billing"] = "yes"
-
-    phone_match = re.search(r"\b(?:phone|mobile|contact)\b.*?(\+?\d[\d\s\-\(\)]{6,}\d)", text, flags=re.I)
-    if phone_match:
-        step_id = _pick_contact_step(kind="phone", lowered=lowered, current_step=current_step, known_data=known_data, steps=steps)
-        if step_id is not None:
-            value = re.sub(r"[\s\-\(\)]+", "", phone_match.group(1))
-            extracted[step_id] = value
-
-    if extracted:
-        return Intent(intent="answer", step_id=current_step, value=extracted, confidence=0.78)
-
     if step_definitions:
         go_label_match = re.search(r"\b(go back to|go to|goto|open|jump to)\b\s+(?:the\s+)?(.+)$", lowered)
         if go_label_match:
@@ -365,78 +368,6 @@ def _map_natural_language_edits(
             if is_edit:
                 value = re.sub(r"[\s\-\(\)]+", "", phone_match.group(1))
                 return Intent(intent="correct_step", step_id=step_id, value={step_id: value}, confidence=0.8)
-
-    hotel_name_match = re.search(
-        r"\b(hotel\s+name|hotel's\s+name)\b\s*(?:is|was|=)\s*(.+)$",
-        lowered,
-    )
-    if hotel_name_match and "hotel_basic_details.hotel_name" in steps:
-        raw_value = text[text.lower().find(hotel_name_match.group(2).lower()) :]
-        return Intent(
-            intent="correct_step",
-            step_id="hotel_basic_details.hotel_name",
-            value={"hotel_basic_details.hotel_name": _coerce_value(raw_value)},
-            confidence=0.8,
-        )
-
-    hotel_name_change_to_match = re.search(
-        r"\b(change|update|correct|set)\b.*\bhotel\s+name\b.*\bto\b\s*(.+)$",
-        lowered,
-    )
-    if hotel_name_change_to_match and "hotel_basic_details.hotel_name" in steps:
-        raw_value = text[text.lower().find(hotel_name_change_to_match.group(2).lower()) :]
-        return Intent(
-            intent="correct_step",
-            step_id="hotel_basic_details.hotel_name",
-            value={"hotel_basic_details.hotel_name": _coerce_value(raw_value)},
-            confidence=0.85,
-        )
-
-    hotel_name_take_match = re.search(
-        r"\bfor\s+the\s+hotel\s+name\b.*\b(take|use|put|set)\b\s*(.+)$",
-        lowered,
-    )
-    if hotel_name_take_match and "hotel_basic_details.hotel_name" in steps:
-        raw_value = text[text.lower().find(hotel_name_take_match.group(2).lower()) :]
-        return Intent(
-            intent="correct_step",
-            step_id="hotel_basic_details.hotel_name",
-            value={"hotel_basic_details.hotel_name": _coerce_value(raw_value)},
-            confidence=0.8,
-        )
-
-    hotel_name_change_match = re.search(
-        r"\bhotel\s+name\b.*\b(change|changed|update|updated)\b.*\bto\b\s*(.+)$",
-        lowered,
-    )
-    if hotel_name_change_match and "hotel_basic_details.hotel_name" in steps:
-        raw_value = text[text.lower().find(hotel_name_change_match.group(2).lower()) :]
-        return Intent(
-            intent="correct_step",
-            step_id="hotel_basic_details.hotel_name",
-            value={"hotel_basic_details.hotel_name": _coerce_value(raw_value)},
-            confidence=0.8,
-        )
-
-    if "hotel name" in lowered and "hotel_basic_details.hotel_name" in steps:
-        tail_match = re.search(r"\bhotel\s+name\b.*\b(actually|is|was|:)\s*(.+)$", lowered)
-        if tail_match:
-            raw_value = text[text.lower().find(tail_match.group(2).lower()) :]
-            return Intent(
-                intent="correct_step",
-                step_id="hotel_basic_details.hotel_name",
-                value={"hotel_basic_details.hotel_name": _coerce_value(raw_value)},
-                confidence=0.75,
-            )
-
-    if re.search(r"\b(change|update|edit)\b.*\bhotel\s+name\b", lowered) and "hotel_basic_details.hotel_name" in steps:
-        return Intent(intent="go_to_step", step_id="hotel_basic_details.hotel_name", confidence=0.7)
-
-    if re.search(r"\b(change|update|edit)\b.*\b(contact\s+)?email\b", lowered) and "hotel_basic_details.contact_email" in steps:
-        return Intent(intent="go_to_step", step_id="hotel_basic_details.contact_email", confidence=0.7)
-
-    if re.search(r"\b(change|update|edit)\b.*\b(contact\s+)?phone\b", lowered) and "hotel_basic_details.contact_phone" in steps:
-        return Intent(intent="go_to_step", step_id="hotel_basic_details.contact_phone", confidence=0.7)
 
     return None
 
