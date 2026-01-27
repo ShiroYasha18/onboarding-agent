@@ -69,6 +69,12 @@ JSON schema:
   "confidence": number between 0 and 1
 }}
 
+OUTPUT REQUIREMENTS:
+- Always return a JSON object matching the schema exactly.
+- For intent="answer", set "step_id" to the CURRENT STEP.
+- For intent="correct_step" or "go_to_step", set "step_id" to the target step id.
+- For intent="unknown", set "step_id": null and "value": null.
+
 ---
 
 DYNAMIC CONTEXT (INJECTED AT RUNTIME)
@@ -101,11 +107,31 @@ EXTRACTION RULES:
 - If the user gives multiple fields in one sentence, extract all of them.
 - If the user provides multiple fields across different steps, return ALL of them in "value" as a map of step_id -> value.
 - Do NOT pack multiple fields into one value (e.g. don't put email+phone inside hotel_name).
-- If the user message includes an answer for the CURRENT STEP, you MUST include {current_step} in "value".
-- If CURRENT STEP is an enum, pick exactly one matching option and do not assign free text.
-- If CURRENT STEP is a name/text field and the message also contains phone/email/address, extract only the name for that field.
+- If the user message contains any answer for the CURRENT STEP, you MUST include {current_step} in "value".
+- If CURRENT STEP is enum:
+  - Choose exactly one option from the step definition options.
+  - Match case-insensitively (e.g. "ypr" -> "YPR").
+  - If multiple options appear, return intent="unknown".
+  - Never set the enum value to unrelated text.
+- If CURRENT STEP is a name/text field and the message also contains phone/email/address, extract only the name portion (not the other data).
 - If dates are mentioned, normalize them to YYYY-MM-DD if possible.
 - If confidence is low, set confidence below 0.6 and use intent "unknown".
+
+EXAMPLES (follow the schema exactly):
+1)
+CURRENT STEP: warehouse (enum: YPR, JPN)
+USER MESSAGE: "ypr"
+{ "intent": "answer", "step_id": "warehouse", "value": { "warehouse": "YPR" }, "confidence": 0.95 }
+
+2)
+CURRENT STEP: hotel_basic_details.hotel_name (text)
+USER MESSAGE: "Hotel name is Marriott and contact is 88123413123 and marriot@gmail.com"
+{ "intent": "answer", "step_id": "hotel_basic_details.hotel_name", "value": { "hotel_basic_details.hotel_name": "Marriott" }, "confidence": 0.85 }
+
+3)
+CURRENT STEP: warehouse (enum: YPR, JPN)
+USER MESSAGE: "YPR and my hotel name is Marriott"
+{ "intent": "answer", "step_id": "warehouse", "value": { "warehouse": "YPR", "hotel_basic_details.hotel_name": "Marriott" }, "confidence": 0.9 }
 """
 
 def extract_intent(
