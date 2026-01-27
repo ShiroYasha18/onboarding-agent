@@ -101,6 +101,9 @@ EXTRACTION RULES:
 - If the user gives multiple fields in one sentence, extract all of them.
 - If the user provides multiple fields across different steps, return ALL of them in "value" as a map of step_id -> value.
 - Do NOT pack multiple fields into one value (e.g. don't put email+phone inside hotel_name).
+- If the user message includes an answer for the CURRENT STEP, you MUST include {current_step} in "value".
+- If CURRENT STEP is an enum, pick exactly one matching option and do not assign free text.
+- If CURRENT STEP is a name/text field and the message also contains phone/email/address, extract only the name for that field.
 - If dates are mentioned, normalize them to YYYY-MM-DD if possible.
 - If confidence is low, set confidence below 0.6 and use intent "unknown".
 """
@@ -115,55 +118,8 @@ def extract_intent(
     step_definitions: list[dict[str, Any]] | None = None,
 ) -> Intent:
     api_key = os.getenv("GEMINI_API_KEY")
-    mode = (os.getenv("INTENT_EXTRACTION_MODE") or ("llm_first" if api_key else "hybrid")).strip().lower()
-
-    if mode in {"llm_first", "llm-only", "llm_only"} and api_key:
-        intent = _extract_with_gemini(
-            api_key=api_key,
-            message=message,
-            current_step=current_step,
-            all_step_ids=all_step_ids,
-            current_step_fields=current_step_fields,
-            known_data=known_data,
-            step_definitions=step_definitions,
-        )
-        if intent is not None:
-            intent.source = "llm"
-            if intent.intent != "unknown" or float(intent.confidence or 0.0) >= 0.6:
-                if intent.intent == "answer" and isinstance(intent.value, dict) and intent.value:
-                    supplement = _extract_with_heuristics(
-                        message=message,
-                        current_step=current_step,
-                        known_data=known_data,
-                        steps=all_step_ids,
-                        step_definitions=step_definitions,
-                    )
-                    if supplement.intent == "answer" and isinstance(supplement.value, dict) and supplement.value:
-                        merged = dict(intent.value)
-                        for k, v in supplement.value.items():
-                            if k not in merged:
-                                merged[k] = v
-                        intent.value = merged
-                return intent
-
-    heuristic = _extract_with_heuristics(
-        message=message,
-        current_step=current_step,
-        known_data=known_data,
-        steps=all_step_ids,
-        step_definitions=step_definitions,
-    )
-    if heuristic.intent != "answer":
-        heuristic.source = "heuristic"
-        return heuristic
-
-    if isinstance(heuristic.value, dict) and len(heuristic.value) > 1:
-        heuristic.source = "heuristic"
-        return heuristic
-
     if not api_key:
-        heuristic.source = "heuristic"
-        return heuristic
+        return Intent(intent="unknown", confidence=0.0, source="none")
 
     intent = _extract_with_gemini(
         api_key=api_key,
@@ -175,11 +131,7 @@ def extract_intent(
         step_definitions=step_definitions,
     )
     if intent is None:
-        heuristic.source = "heuristic"
-        return heuristic
-    if intent.intent == "unknown" and float(intent.confidence or 0.0) < 0.6:
-        heuristic.source = "heuristic"
-        return heuristic
+        return Intent(intent="unknown", confidence=0.0, source="llm")
 
     intent.source = "llm"
     return intent
@@ -316,19 +268,36 @@ def _map_natural_language_edits(
                     confidence=0.8,
                 )
 
+    values: dict[str, Any] = {}
+
+    if step_definitions:
         kv_match = re.search(r"^(?:my\s+)?(.+?)\s*(?:is|=|:)\s*(.+)$", text, flags=re.I)
         if kv_match:
             field_phrase = kv_match.group(1).strip()
-            raw_value = kv_match.group(2).strip()
+            phrase_tokens = _tokens(field_phrase)
+            if not phrase_tokens or len(phrase_tokens) > 4:
+                kv_match = None
+            elif " and " in field_phrase.lower():
+                kv_match = None
+        if kv_match:
+            raw_value = _clip_free_text_value(kv_match.group(2).strip())
             step_id = _match_step_by_phrase(field_phrase, step_definitions=step_definitions, allowed_steps=steps)
-            if step_id and step_id != current_step:
-                if _looks_like_edit(lowered) or _looks_like_field_reference(field_phrase.lower()):
+            if step_id:
+                if step_id != current_step and (_looks_like_edit(lowered) or step_id in (known_data or {})):
                     return Intent(
                         intent="correct_step",
                         step_id=step_id,
                         value={step_id: _coerce_value(raw_value)},
                         confidence=0.72,
                     )
+                values.setdefault(step_id, _coerce_value(raw_value))
+
+        if "hotel name" in lowered or "hotel's name" in lowered:
+            m = re.search(r"\bhotel(?:'s)?\s+name\s*(?:is|=|:)\s*([^\n\r,;]+)", text, flags=re.I)
+            if m:
+                step_id = _match_step_by_phrase("hotel name", step_definitions=step_definitions, allowed_steps=steps)
+                if step_id:
+                    values.setdefault(step_id, _coerce_value(_clip_free_text_value(m.group(1).strip())))
 
     enum_match = _match_enum_value(
         text=text,
@@ -338,8 +307,10 @@ def _map_natural_language_edits(
         step_definitions=step_definitions,
         known_data=known_data,
     )
-    if enum_match is not None:
-        return enum_match
+    if enum_match is not None and isinstance(enum_match.value, dict):
+        for k, v in enum_match.value.items():
+            if isinstance(k, str):
+                values.setdefault(k, v)
 
     email_match = re.search(r"([^\s@]+@[^\s@]+\.[^\s@]+)", text)
     if email_match:
@@ -352,8 +323,7 @@ def _map_natural_language_edits(
             step_definitions=step_definitions,
         )
         if step_id is not None:
-            intent = "answer" if step_id == current_step else "correct_step"
-            return Intent(intent=intent, step_id=step_id, value={step_id: email_match.group(1)}, confidence=0.82)
+            values.setdefault(step_id, email_match.group(1))
 
     phone_match = re.search(r"(\+?\d[\d\s\-\(\)]{6,}\d)", text)
     if phone_match:
@@ -366,11 +336,46 @@ def _map_natural_language_edits(
             step_definitions=step_definitions,
         )
         if step_id is not None:
-            value = re.sub(r"[\s\-\(\)]+", "", phone_match.group(1))
-            intent = "answer" if step_id == current_step else "correct_step"
-            return Intent(intent=intent, step_id=step_id, value={step_id: value}, confidence=0.82)
+            values.setdefault(step_id, re.sub(r"[\s\-\(\)]+", "", phone_match.group(1)))
+
+    if values:
+        return Intent(intent="answer", step_id=current_step, value=values, confidence=0.84)
 
     return None
+
+
+def _clip_free_text_value(raw: str) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return value
+
+    lowered = value.lower()
+    markers = [
+        " and the contact",
+        " and contact",
+        " contact details",
+        " email ",
+        " phone ",
+        " contact is",
+        " contact:",
+        " email:",
+        " phone:",
+    ]
+    cut = None
+    for m in markers:
+        idx = lowered.find(m)
+        if idx != -1:
+            cut = idx if cut is None else min(cut, idx)
+    if cut is not None and cut > 0:
+        return value[:cut].strip(" ,.;")
+
+    and_idx = lowered.find(" and ")
+    if and_idx != -1:
+        tail = lowered[and_idx + 5 :]
+        if "contact" in tail or "email" in tail or "phone" in tail or "warehouse" in tail or "@" in tail or re.search(r"\b\d{8,}\b", tail):
+            return value[:and_idx].strip(" ,.;")
+
+    return value
 
 
 def _extract_step_id_from_text(text: str, steps: list[str]) -> str | None:
@@ -503,6 +508,10 @@ def _pick_contact_step(
         score = 0
         if sid == current_step:
             score += 100
+        if "basic_details" in sid:
+            score += 15
+        if "contact_persons" in sid and "primary" not in lowered:
+            score -= 6
         if "primary" in lowered and "primary" in sid:
             score += 20
         if "customer" in lowered and "customer" in sid:
