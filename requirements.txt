@@ -3,4 +3,4 @@ uvicorn
 redis
 langgraph
 pydantic
-google-generativeai
+google-genai

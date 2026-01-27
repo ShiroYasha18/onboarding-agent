@@ -31,7 +31,7 @@ def prompt_for(state: OnboardingState, step_id: str) -> str:
         return "Continue."
 
     base = str(question.get("prompt") or question.get("label") or step_id)
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
         return base
 
@@ -42,7 +42,7 @@ def prompt_for(state: OnboardingState, step_id: str) -> str:
             return cached.strip()
 
     try:
-        import google.generativeai as genai  # type: ignore
+        from google import genai  # type: ignore
     except Exception:
         return base
 
@@ -57,8 +57,8 @@ def prompt_for(state: OnboardingState, step_id: str) -> str:
         "prompt": question.get("prompt"),
     }
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+    client = genai.Client(api_key=api_key)
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     llm_prompt = (
         "Write ONE short, friendly, concrete question for the user.\n"
         "Ask only for the field in step_definition.\n"
@@ -68,7 +68,7 @@ def prompt_for(state: OnboardingState, step_id: str) -> str:
         f"known_data: {json.dumps(filtered_known, ensure_ascii=False)}\n"
     )
     try:
-        text = (model.generate_content(llm_prompt).text or "").strip()
+        text = (client.models.generate_content(model=model, contents=llm_prompt).text or "").strip()
         if not text:
             return base
         rendered = text.splitlines()[0].strip() if len(text) > 140 else text
@@ -269,6 +269,10 @@ def apply_intent(state: OnboardingState) -> OnboardingState:
 
         state.current_step = target
         state.completed = False
+        return state
+
+    if intent_type == "unknown" and (state.intent_source or "").strip().lower() == "none":
+        state.last_error = "LLM is not configured (set GEMINI_API_KEY)."
         return state
 
     state.last_error = "Could you rephrase that?"
