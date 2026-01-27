@@ -49,16 +49,44 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
-def _build_groups() -> list[dict[str, Any]]:
+def _load_flow() -> dict[str, Any]:
     flow_path = Path(__file__).with_name("flow.json")
     if not flow_path.exists():
-        return []
+        return {}
     try:
         flow = json.loads(flow_path.read_text(encoding="utf-8"))
     except Exception:
-        return []
+        return {}
+    return flow if isinstance(flow, dict) else {}
 
-    raw_questions = flow.get("questions") if isinstance(flow, dict) else None
+
+FLOW = _load_flow()
+
+def _build_phases() -> list[dict[str, Any]]:
+    raw = FLOW.get("phases")
+    if not isinstance(raw, list):
+        return []
+    phases: list[dict[str, Any]] = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        pid = p.get("id")
+        if not isinstance(pid, str) or not pid:
+            continue
+        phases.append(
+            {
+                "id": pid,
+                "label": str(p.get("label") or pid),
+                "description": str(p.get("description") or ""),
+                "order": int(p.get("order") or 0),
+            }
+        )
+    phases.sort(key=lambda x: (x.get("order", 0), str(x.get("id", ""))))
+    return phases
+
+
+def _build_groups() -> list[dict[str, Any]]:
+    raw_questions = FLOW.get("questions")
     if not isinstance(raw_questions, list):
         return []
 
@@ -69,12 +97,14 @@ def _build_groups() -> list[dict[str, Any]]:
         group_id = q.get("id")
         if not isinstance(group_id, str) or not group_id:
             continue
+        phase_id = q.get("phase_id") if isinstance(q.get("phase_id"), str) else None
         group = {
             "id": group_id,
             "label": str(q.get("label") or group_id),
             "order": int(q.get("order") or 0),
             "optional": bool(q.get("optional")),
             "repeatable": bool(q.get("repeatable")),
+            "phase_id": phase_id,
             "step_ids": [],
         }
 
@@ -120,7 +150,10 @@ def _build_groups() -> list[dict[str, Any]]:
     return groups
 
 
+PHASES = _build_phases()
 GROUPS = _build_groups()
+
+_PHASE_BY_ID = {p["id"]: p for p in PHASES if isinstance(p, dict) and p.get("id")}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -138,12 +171,12 @@ def health() -> dict[str, str]:
 
 @app.get("/questions")
 def questions() -> dict[str, Any]:
-    return {"questions": QUESTIONS, "groups": GROUPS}
+    return {"questions": QUESTIONS, "groups": GROUPS, "phases": PHASES}
 
 
 @app.get("/flow")
 def flow() -> dict[str, Any]:
-    return {"groups": GROUPS}
+    return {"groups": GROUPS, "phases": PHASES}
 
 
 def _prompt_for(state: OnboardingState, step_id: str) -> str:
@@ -185,6 +218,19 @@ def _review_summary(state: OnboardingState) -> str:
 
     return "\n".join(lines)
 
+def _phase_intro() -> str:
+    if not PHASES:
+        return "Hey, I’m LG. Welcome to the onboarding interface."
+    lines: list[str] = ["Hey, I’m LG. Welcome to the onboarding interface.", "", "There are 4 phases:"]
+    for p in PHASES:
+        label = str(p.get("label") or p.get("id") or "")
+        desc = str(p.get("description") or "").strip()
+        if desc:
+            lines.append(f"- {label}: {desc}")
+        else:
+            lines.append(f"- {label}")
+    return "\n".join(lines)
+
 
 @app.post("/start")
 def start(tenant_id: str = "default") -> dict[str, Any]:
@@ -195,10 +241,14 @@ def start(tenant_id: str = "default") -> dict[str, Any]:
     state = engine.resolve_next_step(state)
     save_state(session_id, state)
 
+    intro = _phase_intro()
+    prompt = _prompt_for(state, state.current_step)
+    reply = f"{intro}\n\n{prompt}" if intro else prompt
+
     return {
         "session_id": session_id,
         "current_step": state.current_step,
-        "reply": _prompt_for(state, state.current_step),
+        "reply": reply,
         "data": state.data,
         "completed_steps": state.completed_steps,
         "completed": state.completed,

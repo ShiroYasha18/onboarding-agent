@@ -320,6 +320,7 @@
         completedSteps: [],
         questions: [],
         groups: [],
+        phases: [],
         labelById: {},
       };
 
@@ -510,6 +511,68 @@
         el.preview.innerHTML = "";
         const groups = state.groups || [];
         if (groups.length) {
+          const phases = state.phases || [];
+          const phaseById = {};
+          for (const p of phases) {
+            if (p && p.id) phaseById[p.id] = p;
+          }
+
+          const hasPhases = groups.some((g) => g && g.phase_id);
+          if (hasPhases && phases.length) {
+            const groupsByPhase = {};
+            for (const g of groups) {
+              const pid = g.phase_id || "unphased";
+              if (!groupsByPhase[pid]) groupsByPhase[pid] = [];
+              groupsByPhase[pid].push(g);
+            }
+
+            const orderedPhaseIds = phases.map((p) => p.id).filter(Boolean);
+            if (groupsByPhase.unphased) orderedPhaseIds.push("unphased");
+
+            for (const pid of orderedPhaseIds) {
+              const pg = groupsByPhase[pid] || [];
+              if (!pg.length) continue;
+
+              const p = phaseById[pid];
+              const phaseHeader = document.createElement("div");
+              phaseHeader.className = "note";
+              phaseHeader.style.margin = "14px 2px 6px 2px";
+              phaseHeader.style.padding = "0";
+              phaseHeader.style.fontSize = "13px";
+              phaseHeader.style.fontWeight = "650";
+              phaseHeader.style.color = "rgba(255,255,255,0.9)";
+              phaseHeader.textContent = p ? p.label || p.id : "Other";
+              el.preview.appendChild(phaseHeader);
+
+              if (p && p.description) {
+                const phaseDesc = document.createElement("div");
+                phaseDesc.className = "note";
+                phaseDesc.style.margin = "0 2px 8px 2px";
+                phaseDesc.style.padding = "0";
+                phaseDesc.style.fontSize = "12px";
+                phaseDesc.style.color = "rgba(255,255,255,0.65)";
+                phaseDesc.textContent = p.description;
+                el.preview.appendChild(phaseDesc);
+              }
+
+              for (const g of pg) {
+                const header = document.createElement("div");
+                header.className = "note";
+                header.style.margin = "10px 2px 8px 2px";
+                header.style.padding = "0";
+                header.style.fontSize = "13px";
+                header.style.color = "rgba(255,255,255,0.82)";
+                header.textContent = g.label || g.id;
+                el.preview.appendChild(header);
+
+                for (const stepId of g.step_ids || []) {
+                  el.preview.appendChild(renderRow(stepId));
+                }
+              }
+            }
+            return;
+          }
+
           for (const g of groups) {
             const header = document.createElement("div");
             header.className = "note";
@@ -548,6 +611,7 @@
           const q = await api("/questions");
           state.questions = q.questions || [];
           state.groups = q.groups || [];
+          state.phases = q.phases || [];
           buildLabelMap();
           setHeader();
         } catch (_) {}

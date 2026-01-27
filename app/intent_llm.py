@@ -330,44 +330,45 @@ def _map_natural_language_edits(
                         confidence=0.72,
                     )
 
-    if "warehouse" in lowered:
-        value = None
-        if "ypr" in lowered:
-            value = "YPR"
-        elif "jpn" in lowered or "japan" in lowered or re.search(r"\bjp\b", lowered):
-            value = "JPN"
-
-        if value is not None and "warehouse" in steps:
-            return Intent(intent="correct_step", step_id="warehouse", value={"warehouse": value}, confidence=0.8)
-
-        if re.search(r"\b(change|update|edit)\b.*\bwarehouse\b", lowered) and "warehouse" in steps:
-            return Intent(intent="go_to_step", step_id="warehouse", confidence=0.75)
-
-    if current_step.endswith(".customer_type") and current_step in steps:
-        mapped = _map_customer_type(lowered)
-        if mapped is not None:
-            return Intent(intent="answer", step_id=current_step, value={current_step: mapped}, confidence=0.8)
+    enum_match = _match_enum_value(
+        text=text,
+        lowered=lowered,
+        current_step=current_step,
+        steps=steps,
+        step_definitions=step_definitions,
+        known_data=known_data,
+    )
+    if enum_match is not None:
+        return enum_match
 
     email_match = re.search(r"([^\s@]+@[^\s@]+\.[^\s@]+)", text)
     if email_match:
         step_id = _pick_contact_step(
-            kind="email", lowered=lowered, current_step=current_step, known_data=known_data, steps=steps
+            kind="email",
+            lowered=lowered,
+            current_step=current_step,
+            known_data=known_data,
+            steps=steps,
+            step_definitions=step_definitions,
         )
         if step_id is not None:
-            is_edit = "email" in lowered or "mail" in lowered or _looks_like_edit(lowered)
-            if is_edit:
-                return Intent(intent="correct_step", step_id=step_id, value={step_id: email_match.group(1)}, confidence=0.8)
+            intent = "answer" if step_id == current_step else "correct_step"
+            return Intent(intent=intent, step_id=step_id, value={step_id: email_match.group(1)}, confidence=0.82)
 
     phone_match = re.search(r"(\+?\d[\d\s\-\(\)]{6,}\d)", text)
     if phone_match:
         step_id = _pick_contact_step(
-            kind="phone", lowered=lowered, current_step=current_step, known_data=known_data, steps=steps
+            kind="phone",
+            lowered=lowered,
+            current_step=current_step,
+            known_data=known_data,
+            steps=steps,
+            step_definitions=step_definitions,
         )
         if step_id is not None:
-            is_edit = ("phone" in lowered or "mobile" in lowered or "number" in lowered or _looks_like_edit(lowered))
-            if is_edit:
-                value = re.sub(r"[\s\-\(\)]+", "", phone_match.group(1))
-                return Intent(intent="correct_step", step_id=step_id, value={step_id: value}, confidence=0.8)
+            value = re.sub(r"[\s\-\(\)]+", "", phone_match.group(1))
+            intent = "answer" if step_id == current_step else "correct_step"
+            return Intent(intent=intent, step_id=step_id, value={step_id: value}, confidence=0.82)
 
     return None
 
@@ -473,53 +474,53 @@ def _looks_like_edit(lowered: str) -> bool:
 
 
 def _pick_contact_step(
-    *, kind: Literal["phone", "email"], lowered: str, current_step: str, known_data: dict[str, Any], steps: list[str]
+    *,
+    kind: Literal["phone", "email"],
+    lowered: str,
+    current_step: str,
+    known_data: dict[str, Any],
+    steps: list[str],
+    step_definitions: list[dict[str, Any]] | None,
 ) -> str | None:
-    if kind == "phone":
-        candidates = [
-            "hotel_basic_details.contact_phone",
-            "hotel_contact_persons.primary.phone",
-            "customer_user.phone",
-        ]
-        hints = [("primary", "hotel_contact_persons.primary.phone"), ("customer", "customer_user.phone"), ("contact", "hotel_basic_details.contact_phone")]
+    type_map = _types_by_step_id(step_definitions)
+    if type_map:
+        target_type = "email" if kind == "email" else "phone"
+        candidates = [sid for sid, t in type_map.items() if t == target_type and sid in steps]
     else:
-        candidates = [
-            "hotel_basic_details.contact_email",
-            "hotel_contact_persons.primary.email",
-            "customer_user.email",
-        ]
-        hints = [("primary", "hotel_contact_persons.primary.email"), ("customer", "customer_user.email"), ("contact", "hotel_basic_details.contact_email")]
+        if kind == "email":
+            candidates = [sid for sid in steps if sid.endswith(".email") or sid.endswith("_email") or "email" in sid]
+        else:
+            candidates = [sid for sid in steps if sid.endswith(".phone") or sid.endswith("_phone") or "phone" in sid]
 
-    if current_step in candidates and current_step in steps:
+    if not candidates:
+        return None
+
+    if current_step in candidates:
         return current_step
 
-    for token, step_id in hints:
-        if token in lowered and step_id in steps:
-            return step_id
+    scored: list[tuple[int, str]] = []
+    for sid in candidates:
+        score = 0
+        if sid == current_step:
+            score += 100
+        if "primary" in lowered and "primary" in sid:
+            score += 20
+        if "customer" in lowered and "customer" in sid:
+            score += 20
+        if "hotel" in lowered and "hotel" in sid:
+            score += 10
+        if "contact" in lowered and "contact" in sid:
+            score += 12
+        score += 3 if kind in sid else 0
+        scored.append((score, sid))
 
-    present = [c for c in candidates if c in known_data and c in steps]
+    present = [c for c in candidates if c in known_data]
     if len(present) == 1:
         return present[0]
 
-    for c in candidates:
-        if c in steps:
-            return c
-
-    return None
-
-
-def _map_customer_type(lowered: str) -> str | None:
-    if "hotel" in lowered or "stay" in lowered or "resort" in lowered or "hostel" in lowered:
-        return "HOTEL"
-    if "hospital" in lowered or "clinic" in lowered or "medical" in lowered:
-        return "HOSPITAL"
-    if "restaurant" in lowered or "dining" in lowered or "food" in lowered:
-        return "RESTAURANT"
-    if "corporate" in lowered or "company" in lowered or "business" in lowered:
-        return "CORPORATE"
-    if "other" in lowered:
-        return "OTHER"
-    return None
+    scored.sort(reverse=True)
+    best = scored[0][1] if scored else None
+    return best
 
 
 def _coerce_value(text: str) -> Any:
@@ -540,3 +541,89 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     if start == -1 or end == -1 or end <= start:
         raise ValueError("No JSON object found")
     return json.loads(text[start : end + 1])
+
+
+def _types_by_step_id(step_definitions: list[dict[str, Any]] | None) -> dict[str, str]:
+    if not step_definitions:
+        return {}
+    out: dict[str, str] = {}
+    for sd in step_definitions:
+        sid = sd.get("id")
+        t = sd.get("type")
+        if isinstance(sid, str) and isinstance(t, str):
+            out[sid] = t
+    return out
+
+
+def _match_enum_value(
+    *,
+    text: str,
+    lowered: str,
+    current_step: str,
+    steps: list[str],
+    step_definitions: list[dict[str, Any]] | None,
+    known_data: dict[str, Any],
+) -> Intent | None:
+    if not step_definitions:
+        return None
+
+    stripped = (text or "").strip()
+    if not stripped:
+        return None
+
+    candidates: list[tuple[int, str, Any]] = []
+    for sd in step_definitions:
+        sid = sd.get("id")
+        if not isinstance(sid, str) or sid not in steps:
+            continue
+        if sd.get("type") != "enum":
+            continue
+        options = sd.get("options")
+        if not isinstance(options, list) or not options:
+            continue
+
+        label = str(sd.get("label") or "")
+        sid_l = sid.lower()
+        label_l = label.lower()
+        has_step_hint = (sid_l and re.search(rf"\\b{re.escape(sid_l)}\\b", lowered)) or (label_l and label_l in lowered)
+
+        for opt in options:
+            opt_s = str(opt).strip()
+            if not opt_s:
+                continue
+            opt_l = opt_s.lower()
+            matched = False
+            if stripped.lower() == opt_l:
+                matched = True
+            elif len(opt_l) <= 4 and re.search(rf"\\b{re.escape(opt_l)}\\b", lowered):
+                matched = True
+            elif opt_l in lowered:
+                matched = True
+
+            if not matched:
+                continue
+
+            score = 0
+            if sid == current_step:
+                score += 100
+            if has_step_hint:
+                score += 20
+            if sid in known_data:
+                score -= 2
+            if opt_l == stripped.lower():
+                score += 10
+            candidates.append((score, sid, opt_s))
+
+    if not candidates:
+        return None
+
+    candidates.sort(reverse=True)
+    best_score, best_sid, best_value = candidates[0]
+    if len(candidates) > 1:
+        second_score = candidates[1][0]
+        if best_score == second_score and candidates[1][1] != best_sid:
+            return None
+
+    intent = "answer" if best_sid == current_step else "correct_step"
+    confidence = 0.86 if best_sid == current_step else (0.8 if best_score >= 20 else 0.72)
+    return Intent(intent=intent, step_id=best_sid, value={best_sid: best_value}, confidence=confidence)

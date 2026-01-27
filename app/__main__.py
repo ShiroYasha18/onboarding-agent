@@ -9,12 +9,12 @@ import webbrowser
 import uvicorn
 
 
-def _pick_port(preferred: int) -> int:
-    for port in range(preferred, preferred + 20):
+def _pick_port(*, host: str, preferred: int, tries: int) -> int:
+    for port in range(preferred, preferred + max(1, tries)):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                s.bind(("127.0.0.1", port))
+                s.bind((host, port))
                 return port
             except OSError:
                 continue
@@ -24,7 +24,8 @@ def _pick_port(preferred: int) -> int:
 def main() -> None:
     host = os.getenv("HOST", "127.0.0.1")
     preferred_port = int(os.getenv("PORT", "8002"))
-    port = _pick_port(preferred_port)
+    tries = int(os.getenv("PORT_TRIES", "20"))
+    port = _pick_port(host=host, preferred=preferred_port, tries=tries)
     url = f"http://{host}:{port}/"
 
     if os.getenv("OPEN_BROWSER", "1") not in {"0", "false", "False"}:

@@ -2,10 +2,18 @@
   "version": "1.0",
   "flow_name": "flash_hotel_onboarding",
 
+  "phases": [
+    { "id": "phase_1", "order": 1, "label": "Core setup", "description": "Warehouse, hotel basics, registration" },
+    { "id": "phase_2", "order": 2, "label": "Addresses", "description": "Billing and shipping details" },
+    { "id": "phase_3", "order": 3, "label": "Commercials", "description": "Contacts, agreement, pricing" },
+    { "id": "phase_4", "order": 4, "label": "Access & inventory", "description": "Customer user and inventory setup" }
+  ],
+
   "questions": [
     {
       "id": "warehouse",
       "order": 1,
+      "phase_id": "phase_1",
       "label": "Select warehouse",
       "field": {
         "type": "enum",
@@ -17,6 +25,7 @@
     {
       "id": "hotel_basic_details",
       "order": 2,
+      "phase_id": "phase_1",
       "label": "Hotel basic details",
       "fields": {
         "hotel_name": { "type": "text", "required": true },
@@ -38,6 +47,7 @@
     {
       "id": "registration_details",
       "order": 3,
+      "phase_id": "phase_1",
       "label": "Registration details",
       "fields": {
         "gstin_number": { "type": "text", "required": true },
@@ -48,6 +58,7 @@
     {
       "id": "billing_address",
       "order": 4,
+      "phase_id": "phase_2",
       "label": "Billing address",
       "fields": {
         "address_line_1": { "type": "text", "required": true },
@@ -62,6 +73,7 @@
     {
       "id": "shipping_address",
       "order": 5,
+      "phase_id": "phase_2",
       "label": "Shipping address",
       "fields": {
         "address_line_1": { "type": "text", "required": true },
@@ -76,6 +88,7 @@
     {
       "id": "hotel_contact_persons",
       "order": 6,
+      "phase_id": "phase_3",
       "label": "Hotel contact persons",
       "repeatable": true,
       "fields": {
@@ -88,6 +101,7 @@
     {
       "id": "agreement_details",
       "order": 7,
+      "phase_id": "phase_3",
       "label": "Agreement details",
       "fields": {
         "agreement_type": {
@@ -134,6 +148,7 @@
     {
       "id": "price_list",
       "order": 8,
+      "phase_id": "phase_3",
       "label": "Price list configuration",
       "repeatable": true,
       "fields": {
@@ -151,6 +166,7 @@
     {
       "id": "customer_user",
       "order": 9,
+      "phase_id": "phase_4",
       "label": "Customer user creation",
       "fields": {
         "customer_name": { "type": "text", "required": true },
@@ -164,6 +180,7 @@
     {
       "id": "inventory_pool",
       "order": 10,
+      "phase_id": "phase_4",
       "label": "Inventory pool (optional)",
       "optional": true,
       "fields": {
@@ -176,6 +193,7 @@
     {
       "id": "inventory_reservation",
       "order": 11,
+      "phase_id": "phase_4",
       "label": "Inventory reservation",
       "fields": {
         "customer_name": { "type": "text", "required": true },

@@ -112,15 +112,25 @@
           This page checks if the backend is already running and then opens the UI.
           If it isn’t running, start it once using the command below.
         </div>
-        <code>cd "flash-onboarding-agent"
+        <code>cd "&lt;flash-onboarding-agent&gt;"
 python -m app</code>
         <div class="status" id="status">Checking backend…</div>
       </div>
     </div>
     <script>
-      const HOST = "127.0.0.1";
-      const PORT_START = 8002;
-      const PORT_TRIES = 20;
+      const params = new URLSearchParams(window.location.search);
+      const baseParam = (params.get("base") || "").trim();
+      const hostParam = (params.get("host") || "").trim();
+      const portStartParam = Number(params.get("portStart") || params.get("port") || "");
+      const triesParam = Number(params.get("tries") || "");
+
+      const DEFAULT_HOST = "127.0.0.1";
+      const DEFAULT_PORT_START = 8002;
+      const DEFAULT_PORT_TRIES = 20;
+
+      const HOST = hostParam || DEFAULT_HOST;
+      const PORT_START = Number.isFinite(portStartParam) && portStartParam > 0 ? portStartParam : DEFAULT_PORT_START;
+      const PORT_TRIES = Number.isFinite(triesParam) && triesParam > 0 ? triesParam : DEFAULT_PORT_TRIES;
       const statusEl = document.getElementById("status");
       const openBtn = document.getElementById("open");
       let discoveredBase = null;
@@ -135,13 +145,19 @@ python -m app</code>
       }
 
       async function openUI() {
-        const base = discoveredBase || `http://${HOST}:${PORT_START}`;
+        const base =
+          discoveredBase ||
+          baseParam ||
+          (window.location.protocol === "http:" || window.location.protocol === "https:"
+            ? window.location.origin
+            : `http://${HOST}:${PORT_START}`);
         window.location.href = `${base}/`;
       }
 
       openBtn.addEventListener("click", openUI);
 
       async function findBackend() {
+        if (baseParam && (await isUp(baseParam))) return baseParam;
         for (let i = 0; i < PORT_TRIES; i++) {
           const port = PORT_START + i;
           const base = `http://${HOST}:${port}`;
