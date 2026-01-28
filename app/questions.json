@@ -10,7 +10,8 @@
       "prompt": "Which warehouse should this hotel belong to? (YPR/JPN)",
       "type": "enum",
       "options": ["YPR", "JPN"],
-      "required": true
+      "required": true,
+      "reasoning": "Determines which facility handles the logistics and operations for this account."
     },
 
     {
@@ -19,7 +20,8 @@
       "label": "Hotel name",
       "prompt": "What’s the hotel name?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Identifies the hotel in our system and on all reports."
     },
 
     {
@@ -28,7 +30,8 @@
       "label": "Contact phone",
       "prompt": "What’s the contact phone number?",
       "type": "phone",
-      "required": true
+      "required": true,
+      "reasoning": "Primary number for urgent operational communication."
     },
 
     {
@@ -37,7 +40,8 @@
       "label": "Contact email",
       "prompt": "What’s the contact email?",
       "type": "email",
-      "required": true
+      "required": true,
+      "reasoning": "Used for sending automated reports and invoices."
     },
 
     {
@@ -47,7 +51,8 @@
       "prompt": "What’s the hotel status? (Active/Inactive)",
       "type": "enum",
       "options": ["Active", "Inactive"],
-      "required": true
+      "required": true,
+      "reasoning": "Controls whether the hotel is currently active in our system."
     },
 
     {
@@ -57,7 +62,8 @@
       "prompt": "What’s the customer type? (HOTEL/HOSPITAL/RESTAURANT/CORPORATE/OTHER)",
       "type": "enum",
       "options": ["HOTEL", "HOSPITAL", "RESTAURANT", "CORPORATE", "OTHER"],
-      "required": true
+      "required": true,
+      "reasoning": "Classifies the client for reporting and tax purposes."
     },
 
     {
@@ -66,7 +72,8 @@
       "label": "GSTIN number",
       "prompt": "What’s the GSTIN number?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Mandatory for tax compliance and generating valid GST invoices."
     },
 
     {
@@ -75,7 +82,8 @@
       "label": "PAN number",
       "prompt": "What’s the PAN number?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Required for income tax tracking and financial compliance."
     },
 
     {
@@ -84,7 +92,8 @@
       "label": "Billing address line 1",
       "prompt": "Billing address: address line 1?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Primary billing location for invoice delivery."
     },
 
     {
@@ -93,7 +102,8 @@
       "label": "Billing address line 2",
       "prompt": "Billing address: address line 2? (optional — type skip to leave empty)",
       "type": "text",
-      "optional": true
+      "optional": true,
+      "reasoning": "Additional address details for precise billing location."
     },
 
     {
@@ -102,7 +112,8 @@
       "label": "Billing city",
       "prompt": "Billing address: city?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "City for tax calculation and logistics planning."
     },
 
     {
@@ -111,7 +122,8 @@
       "label": "Billing state",
       "prompt": "Billing address: state?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "State determines IGST vs SGST/CGST tax application."
     },
 
     {
@@ -120,7 +132,8 @@
       "label": "Billing ZIP code",
       "prompt": "Billing address: ZIP/postal code?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Postal code for accurate mail delivery and logistics."
     },
 
     {
@@ -130,7 +143,8 @@
       "prompt": "Billing address: country? (default India)",
       "type": "text",
       "default": "India",
-      "optional": true
+      "optional": true,
+      "reasoning": "Country for international tax and legal compliance."
     },
 
     {
@@ -140,7 +154,8 @@
       "prompt": "Is the shipping address the same as billing? (yes/no)",
       "type": "enum",
       "options": ["yes", "no"],
-      "required": true
+      "required": true,
+      "reasoning": "Saves time by copying billing details if shipping is identical."
     },
 
     {
@@ -150,7 +165,8 @@
       "prompt": "Shipping address: address line 1?",
       "type": "text",
       "required": true,
-      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
+      "reasoning": "Physical location where linen is delivered and picked up."
     },
 
     {
@@ -160,7 +176,8 @@
       "prompt": "Shipping address: address line 2? (optional — type skip to leave empty)",
       "type": "text",
       "optional": true,
-      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
+      "reasoning": "Additional shipping address details."
     },
 
     {
@@ -170,7 +187,8 @@
       "prompt": "Shipping address: city?",
       "type": "text",
       "required": true,
-      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
+      "reasoning": "City for route planning and delivery logistics."
     },
 
     {
@@ -180,7 +198,8 @@
       "prompt": "Shipping address: state?",
       "type": "text",
       "required": true,
-      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
+      "reasoning": "State for regulatory compliance in transport."
     },
 
     {
@@ -190,7 +209,8 @@
       "prompt": "Shipping address: ZIP/postal code?",
       "type": "text",
       "required": true,
-      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
+      "reasoning": "Postal code for assigning delivery routes."
     },
 
     {
@@ -201,7 +221,8 @@
       "type": "text",
       "default": "India",
       "optional": true,
-      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" }
+      "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
+      "reasoning": "Country for international shipping regulations."
     },
 
     {
@@ -210,7 +231,8 @@
       "label": "Primary contact name",
       "prompt": "Who’s the primary contact person’s name?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Name of the main point of contact for day-to-day operations."
     },
 
     {
@@ -219,7 +241,8 @@
       "label": "Primary contact phone",
       "prompt": "Primary contact phone number?",
       "type": "phone",
-      "required": true
+      "required": true,
+      "reasoning": "Direct line to the primary contact for quick resolution."
     },
 
     {
@@ -228,7 +251,8 @@
       "label": "Primary contact email",
       "prompt": "Primary contact email?",
       "type": "email",
-      "required": true
+      "required": true,
+      "reasoning": "Email for sending operational updates to the primary contact."
     },
 
     {
@@ -238,7 +262,8 @@
       "prompt": "Agreement type? (Rental Laundry/Laundry)",
       "type": "enum",
       "options": ["Rental Laundry", "Laundry"],
-      "required": true
+      "required": true,
+      "reasoning": "Defines the service model (Rental vs Customer-owned Linen)."
     },
 
     {
@@ -247,7 +272,8 @@
       "label": "Service start date",
       "prompt": "Service start date? (YYYY-MM-DD)",
       "type": "date",
-      "required": true
+      "required": true,
+      "reasoning": "The date when billing and operations officially commence."
     },
 
     {
@@ -256,7 +282,8 @@
       "label": "Service end date",
       "prompt": "Service end date? (YYYY-MM-DD)",
       "type": "date",
-      "required": true
+      "required": true,
+      "reasoning": "The date when the current contract term expires."
     },
 
     {
@@ -266,7 +293,8 @@
       "prompt": "Agreement status? (Active/Inactive)",
       "type": "enum",
       "options": ["Active", "Inactive"],
-      "required": true
+      "required": true,
+      "reasoning": "Tracks if the agreement is currently valid or expired."
     },
 
     {
@@ -275,7 +303,8 @@
       "label": "Total rooms",
       "prompt": "Total rooms?",
       "type": "number",
-      "required": true
+      "required": true,
+      "reasoning": "Used to estimate linen volume and inventory requirements."
     },
 
     {
@@ -285,7 +314,8 @@
       "prompt": "Occupancy rate? (optional, default 0)",
       "type": "number",
       "default": 0,
-      "optional": true
+      "optional": true,
+      "reasoning": "Helps forecast daily linen usage and load planning."
     },
 
     {
@@ -294,7 +324,8 @@
       "label": "Deposit amount",
       "prompt": "Deposit amount?",
       "type": "number",
-      "required": true
+      "required": true,
+      "reasoning": "Security deposit held against linen inventory or damages."
     },
 
     {
@@ -304,7 +335,8 @@
       "prompt": "Credit days? (15/30)",
       "type": "enum",
       "options": ["15", "30"],
-      "required": true
+      "required": true,
+      "reasoning": "Number of days allowed for payment after invoice generation."
     },
 
     {
@@ -314,7 +346,8 @@
       "prompt": "Linen delivery days? (Daily/Alternate)",
       "type": "enum",
       "options": ["Daily", "Alternate"],
-      "required": true
+      "required": true,
+      "reasoning": "Schedule for delivery (Daily or Alternate) for route planning."
     },
 
     {
@@ -323,7 +356,8 @@
       "label": "Service frequency",
       "prompt": "Service frequency?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Specific frequency details for customized service plans."
     },
 
     {
@@ -333,7 +367,8 @@
       "prompt": "Billing cycle? (15/30)",
       "type": "enum",
       "options": ["15", "30"],
-      "required": true
+      "required": true,
+      "reasoning": "Frequency of invoice generation (e.g., every 15 or 30 days)."
     },
 
     {
@@ -343,7 +378,8 @@
       "prompt": "Billing start day? (default 1)",
       "type": "number",
       "default": 1,
-      "optional": true
+      "optional": true,
+      "reasoning": "The day of the month when the billing cycle begins."
     },
 
     {
@@ -353,7 +389,8 @@
       "prompt": "Billing end day? (default 15)",
       "type": "number",
       "default": 15,
-      "optional": true
+      "optional": true,
+      "reasoning": "The day of the month when the billing cycle ends."
     },
 
     {
@@ -363,7 +400,8 @@
       "prompt": "Billing type? (Fixed)",
       "type": "enum",
       "options": ["Fixed"],
-      "required": true
+      "required": true,
+      "reasoning": "Defines the billing methodology (e.g., Fixed pricing)."
     },
 
     {
@@ -372,7 +410,8 @@
       "label": "Price list items",
       "prompt": "Provide price list items as JSON array. Example: [{\"product_item\":\"Bedsheet\",\"quantity\":100,\"price\":12.5,\"service_type\":\"Washing\"}]",
       "type": "json",
-      "required": true
+      "required": true,
+      "reasoning": "List of items and their agreed prices for billing accuracy."
     },
 
     {
@@ -381,7 +420,8 @@
       "label": "Customer user name",
       "prompt": "Customer user: name?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Name of the user account created for the customer portal."
     },
 
     {
@@ -390,7 +430,8 @@
       "label": "Customer user email",
       "prompt": "Customer user: email?",
       "type": "email",
-      "required": true
+      "required": true,
+      "reasoning": "Login email for the customer portal."
     },
 
     {
@@ -399,7 +440,8 @@
       "label": "Customer user phone",
       "prompt": "Customer user: phone?",
       "type": "phone",
-      "required": true
+      "required": true,
+      "reasoning": "Contact number associated with the portal user account."
     },
 
     {
@@ -408,7 +450,8 @@
       "label": "Customer user password",
       "prompt": "Customer user: password?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Secure password for accessing the customer portal."
     },
 
     {
@@ -417,7 +460,8 @@
       "label": "Customer user role",
       "prompt": "Customer user: role?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Permissions level assigned to this user in the portal."
     },
 
     {
@@ -427,7 +471,8 @@
       "prompt": "Do you want to create a dedicated inventory pool? (yes/no)",
       "type": "enum",
       "options": ["yes", "no"],
-      "required": true
+      "required": true,
+      "reasoning": "Decides if a dedicated inventory stock needs to be allocated."
     },
 
     {
@@ -437,7 +482,8 @@
       "prompt": "Inventory pool: name?",
       "type": "text",
       "required": true,
-      "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" }
+      "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" },
+      "reasoning": "Unique name to identify this specific inventory pool."
     },
 
     {
@@ -447,7 +493,8 @@
       "prompt": "Inventory pool: description? (optional — type skip to leave empty)",
       "type": "text",
       "optional": true,
-      "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" }
+      "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" },
+      "reasoning": "Optional details describing the purpose of this inventory pool."
     },
 
     {
@@ -457,7 +504,8 @@
       "prompt": "Inventory pool: products? (comma-separated)",
       "type": "list",
       "required": true,
-      "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" }
+      "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" },
+      "reasoning": "List of products included in this specific inventory pool."
     },
 
     {
@@ -466,7 +514,8 @@
       "label": "Reservation customer name",
       "prompt": "Reservation: customer name?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Customer associated with this specific inventory reservation."
     },
 
     {
@@ -476,7 +525,8 @@
       "prompt": "Reservation type? (Fixed/Flexible/Rotational)",
       "type": "enum",
       "options": ["Fixed", "Flexible", "Rotational"],
-      "required": true
+      "required": true,
+      "reasoning": "Type of reservation (Fixed/Flexible) for stock management."
     },
 
     {
@@ -485,7 +535,8 @@
       "label": "Reservation inventory pool",
       "prompt": "Reservation: inventory pool name/id?",
       "type": "text",
-      "required": true
+      "required": true,
+      "reasoning": "Links the reservation to a specific inventory pool."
     },
 
     {
@@ -494,7 +545,8 @@
       "label": "Reservation start date",
       "prompt": "Reservation start date? (YYYY-MM-DD)",
       "type": "date",
-      "required": true
+      "required": true,
+      "reasoning": "Date when the inventory reservation becomes active."
     },
 
     {
@@ -503,7 +555,8 @@
       "label": "Reservation end date",
       "prompt": "Reservation end date? (YYYY-MM-DD)",
       "type": "date",
-      "required": true
+      "required": true,
+      "reasoning": "Date when the inventory reservation expires."
     },
 
     {
@@ -512,7 +565,8 @@
       "label": "Total quantity",
       "prompt": "Reservation: total quantity?",
       "type": "number",
-      "required": true
+      "required": true,
+      "reasoning": "Total number of items reserved for this agreement."
     },
 
     {
@@ -521,7 +575,8 @@
       "label": "Quantity with customer",
       "prompt": "Reservation: quantity with customer?",
       "type": "number",
-      "required": true
+      "required": true,
+      "reasoning": "Number of items currently in the customer's possession."
     },
 
     {
@@ -530,7 +585,8 @@
       "label": "Quantity with DC",
       "prompt": "Reservation: quantity with DC?",
       "type": "number",
-      "required": true
+      "required": true,
+      "reasoning": "Number of items currently at the distribution center."
     }
   ]
 }

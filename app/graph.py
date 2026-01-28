@@ -152,7 +152,12 @@ def _extract_phone(message: str) -> str | None:
 
 
 def _extract_gstin(message: str) -> str | None:
-    m = re.search(r"\b(gstin|gst)\b[^a-z0-9]*([a-z0-9]{8,20})", (message or "").lower())
+    # Strict 15-char format: 2 digits, 5 letters, 4 digits, 1 letter, 1 alphanum, Z, 1 alphanum
+    strict = re.search(r"\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})\b", (message or "").upper())
+    if strict:
+        return strict.group(1)
+        
+    m = re.search(r"\b(gstin|gst)\b[^a-z0-9]*([a-z0-9]{15})", (message or "").lower())
     return m.group(2).upper() if m else None
 
 
@@ -298,7 +303,16 @@ def classify(state: OnboardingState) -> OnboardingState:
     )
     state.last_intent = intent.model_dump()
     state.intent_source = getattr(intent, "source", None)
-    if state.last_intent.get("intent") == "unknown":
+
+    # Fallback if unknown OR if answer is empty for the current step
+    should_fallback = state.last_intent.get("intent") == "unknown"
+    if not should_fallback and state.last_intent.get("intent") == "answer":
+        val = state.last_intent.get("value")
+        # If value is None, empty dict, or dict without current step key
+        if not val or (isinstance(val, dict) and state.current_step not in val):
+            should_fallback = True
+
+    if should_fallback:
         extracted = _heuristic_extract_values(state, message)
         if extracted:
             state.last_intent = {

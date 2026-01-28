@@ -105,6 +105,7 @@ EXTRACTION RULES:
 - If the user repeats an existing value, return it again.
 - If the user gives multiple fields in one sentence, extract all of them.
 - If the user provides multiple fields across different steps, return ALL of them in "value" as a map of step_id -> value.
+- If you can extract at least one value for any known step, return intent="answer" (not "unknown").
 - Do NOT pack multiple fields into one value (e.g. don't put email+phone inside hotel_name).
 - If the user message contains any answer for the CURRENT STEP, you MUST include __CURRENT_STEP__ in "value".
 - If CURRENT STEP is enum:
@@ -114,7 +115,7 @@ EXTRACTION RULES:
   - Never set the enum value to unrelated text.
 - If CURRENT STEP is a name/text field and the message also contains phone/email/address, extract only the name portion (not the other data).
 - If dates are mentioned, normalize them to YYYY-MM-DD if possible.
-- If confidence is low, set confidence below 0.6 and use intent "unknown".
+- If confidence is low, set confidence below 0.6 but still return intent "answer" if you extracted something.
 
 EXAMPLES (follow the schema exactly):
 1)
@@ -131,6 +132,11 @@ USER MESSAGE: "Hotel name is Marriott and contact is 88123413123 and marriot@gma
 CURRENT STEP: warehouse (enum: YPR, JPN)
 USER MESSAGE: "YPR and my hotel name is Marriott"
 { "intent": "answer", "step_id": "warehouse", "value": { "warehouse": "YPR", "hotel_basic_details.hotel_name": "Marriott" }, "confidence": 0.9 }
+
+4)
+CURRENT STEP: registration_details.gstin_number (text)
+USER MESSAGE: "29ABCDE1234F1Z5"
+{ "intent": "answer", "step_id": "registration_details.gstin_number", "value": { "registration_details.gstin_number": "29ABCDE1234F1Z5" }, "confidence": 0.95 }
 """
 
 def extract_intent(

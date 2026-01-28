@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -186,6 +187,128 @@ def flow() -> dict[str, Any]:
 def _prompt_for(state: OnboardingState, step_id: str) -> str:
     return engine.prompt_for(state, step_id)
 
+
+def _hint_for_step(step_id: str) -> str:
+    q = QUESTIONS_BY_ID.get(step_id)
+    if not isinstance(q, dict):
+        return ""
+    qtype = str(q.get("type") or "text")
+    options = q.get("options") or []
+    optional = bool(q.get("optional"))
+    parts: list[str] = []
+
+    if qtype == "enum":
+        opts = [str(o) for o in options if o is not None]
+        if opts:
+            parts.append(f"Options: {' / '.join(opts)}.")
+    elif qtype == "phone":
+        parts.append("Example: +91 88123413123.")
+    elif qtype == "email":
+        parts.append("Example: name@company.com.")
+    elif qtype == "date":
+        parts.append("Use YYYY-MM-DD.")
+    elif qtype == "json":
+        parts.append("Paste valid JSON.")
+    elif qtype == "number":
+        parts.append("Send a number.")
+
+    if optional:
+        parts.append("You can reply 'skip' to leave it empty.")
+
+    return " ".join(parts).strip()
+
+
+def _wants_help(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return bool(re.search(r"\b(help|how|format|example)\b", t))
+
+
+def _wants_why(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return bool(re.search(r"\b(why|reason|what\s+for|needed|need\s+this)\b", t))
+
+
+def _looks_like_question(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    if "?" in t:
+        return True
+    return bool(re.search(r"^(what|why|how|where|which|can\s+i|do\s+i|is\s+this|meaning|explain)\b", t))
+
+
+def _answer_like_for_step(step_id: str, message: str) -> bool:
+    q = QUESTIONS_BY_ID.get(step_id) or {}
+    qtype = str(q.get("type") or "text")
+    text = (message or "").strip()
+    if not text:
+        return False
+
+    if qtype == "enum":
+        options = [str(o) for o in (q.get("options") or []) if o is not None]
+        tokens = set(re.findall(r"[a-z0-9]+", text.lower()))
+        return any(set(re.findall(r"[a-z0-9]+", opt.lower())).issubset(tokens) for opt in options if opt)
+
+    if qtype == "email":
+        return bool(re.search(r"[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+", text))
+
+    if qtype == "phone":
+        return bool(re.search(r"\+?\d[\d\s\-\(\)]{6,}\d", text))
+
+    if qtype == "date":
+        return bool(re.match(r"^\d{4}-\d{2}-\d{2}$", text))
+
+    if qtype == "number":
+        return bool(re.match(r"^[\d.]+$", text))
+
+    if qtype == "json":
+        return text.startswith("{") or text.startswith("[")
+
+    return not _looks_like_question(text)
+
+
+def _pick_step_for_clarification(message: str, current_step: str) -> str:
+    text = (message or "").strip().lower()
+    if not text:
+        return current_step
+
+    msg_tokens = set(re.findall(r"[a-z0-9]+", text))
+    if not msg_tokens:
+        return current_step
+
+    flow_index = {sid: i for i, sid in enumerate(engine.FLOW)}
+    best_step = current_step
+    best_score = 0
+
+    for step_id, q in QUESTIONS_BY_ID.items():
+        sid_tokens = set(re.findall(r"[a-z0-9]+", step_id.lower()))
+        label_tokens = set(re.findall(r"[a-z0-9]+", str(q.get("label") or "").lower()))
+        prompt_tokens = set(re.findall(r"[a-z0-9]+", str(q.get("prompt") or "").lower()))
+
+        score = 0
+        score += 3 * len(msg_tokens & sid_tokens)
+        score += 2 * len(msg_tokens & label_tokens)
+        score += 1 * len(msg_tokens & prompt_tokens)
+        if score <= 0:
+            continue
+
+        if score > best_score:
+            best_score = score
+            best_step = step_id
+        elif score == best_score and flow_index.get(step_id, 10_000_000) < flow_index.get(best_step, 10_000_000):
+            best_step = step_id
+
+    return best_step
+
+
+def _ack_line(applied_labels: list[str]) -> str:
+    if not applied_labels:
+        return ""
+    if len(applied_labels) == 1:
+        return f"Cool — noted {applied_labels[0]}."
+    return f"Nice, got these: {', '.join(applied_labels)}."
+
+
 def _format_value(value: Any) -> str:
     if value is None:
         return "—"
@@ -243,11 +366,11 @@ def start(tenant_id: str = "default") -> dict[str, Any]:
 
     state = OnboardingState(tenant_id=tenant_id, session_id=session_id, current_step=first_step)
     state = engine.resolve_next_step(state)
-    save_state(session_id, state)
 
     intro = _phase_intro()
     prompt = _prompt_for(state, state.current_step)
     reply = f"{intro}\n\n{prompt}" if intro else prompt
+    save_state(session_id, state)
 
     return {
         "session_id": session_id,
@@ -274,6 +397,26 @@ def chat(req: ChatRequest) -> dict[str, Any]:
     except ValueError:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    if req.action == "message":
+        message = (req.message or "").strip()
+        if message and _looks_like_question(message) and not _answer_like_for_step(state.current_step, message):
+            target_step = _pick_step_for_clarification(message, state.current_step)
+            explanation = engine.explain_step(state, target_step, message)
+            prompt = _prompt_for(state, state.current_step)
+            if target_step != state.current_step and prompt:
+                reply = f"{explanation}\n\nFor now:\n{prompt}"
+            else:
+                reply = explanation if not prompt else f"{explanation}\n{prompt}"
+            save_state(req.session_id, state)
+            return {
+                "reply": reply,
+                "current_step": state.current_step,
+                "data": state.data,
+                "completed_steps": state.completed_steps,
+                "completed": state.completed,
+                "intent_source": "clarify",
+            }
+
     if req.action == "set":
         if not req.step_id:
             raise HTTPException(status_code=400, detail="step_id is required for set")
@@ -294,19 +437,54 @@ def chat(req: ChatRequest) -> dict[str, Any]:
     if not isinstance(next_state, OnboardingState):
         next_state = OnboardingState.model_validate(next_state)
 
+    applied_steps = next_state.data.pop("_last_applied_steps", None)
+    applied_labels: list[str] = []
+    if isinstance(applied_steps, list):
+        for sid in applied_steps:
+            if not isinstance(sid, str) or not sid:
+                continue
+            q = QUESTIONS_BY_ID.get(sid, {})
+            label = str(q.get("label") or q.get("prompt") or sid).strip()
+            if label and label not in applied_labels:
+                applied_labels.append(label)
+        if len(applied_labels) > 4:
+            applied_labels = applied_labels[:4]
+
     next_state.last_user_message = None
     next_state.last_intent = None
-    save_state(req.session_id, next_state)
 
     if next_state.last_error:
-        prompt = "" if next_state.completed else _prompt_for(next_state, next_state.current_step)
-        reply = next_state.last_error if not prompt else f"{next_state.last_error}\n{prompt}"
+        # If there's an error, let the intelligent generator handle it
+        # We pass the error message and the user's input so it can be contextual
+        diff = {}  # No updates if error
+        reply = engine.generate_turn_reply(
+            next_state, 
+            diff, 
+            next_state.current_step if not next_state.completed else None,
+            req.message or "",
+            error=next_state.last_error
+        )
     elif next_state.confirmed:
         reply = "Confirmed."
     elif next_state.completed:
-        reply = _review_summary(next_state) + "\n\nReply 'confirm' to finish, or tell me what to change."
+        # Use existing summary logic for now, but wrapped in a nice message
+        summary = _review_summary(next_state)
+        reply = f"{summary}\n\nReply 'confirm' to finish, or tell me what to change."
     else:
-        reply = _prompt_for(next_state, next_state.current_step)
+        # Success case: We have updates (applied_labels) and a next step
+        # Construct a diff-like object for the generator
+        # Note: applied_labels are just strings, but generate_turn_reply expects a dict for keys
+        # We'll map labels back to a dummy dict for display purposes in the prompt
+        diff_context = {lbl: "updated" for lbl in applied_labels}
+        
+        reply = engine.generate_turn_reply(
+            next_state,
+            diff_context,
+            next_state.current_step,
+            req.message or ""
+        )
+
+    save_state(req.session_id, next_state)
 
     return {
         "reply": reply,

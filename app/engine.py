@@ -25,28 +25,157 @@ def get_question(step_id: str) -> dict[str, Any] | None:
     return QUESTIONS_BY_ID.get(step_id)
 
 
+def _next_prompt_variant(state: OnboardingState, step_id: str) -> int:
+    store = state.data.get("_prompt_variant_counter")
+    if not isinstance(store, dict):
+        store = {}
+        state.data["_prompt_variant_counter"] = store
+    raw = store.get(step_id)
+    n = int(raw) if isinstance(raw, (int, float)) else 0
+    n += 1
+    store[step_id] = n
+    return n
+
+
+def _get_prompt_history(state: OnboardingState, step_id: str) -> list[str]:
+    store = state.data.get("_prompt_history")
+    if not isinstance(store, dict):
+        return []
+    history = store.get(step_id)
+    return [h for h in history if isinstance(h, str) and h.strip()] if isinstance(history, list) else []
+
+
+def _push_prompt_history(state: OnboardingState, step_id: str, prompt: str) -> None:
+    store = state.data.get("_prompt_history")
+    if not isinstance(store, dict):
+        store = {}
+        state.data["_prompt_history"] = store
+    history = store.get(step_id)
+    if not isinstance(history, list):
+        history = []
+        store[step_id] = history
+    text = (prompt or "").strip()
+    if not text:
+        return
+    if history and history[-1] == text:
+        return
+    history.append(text)
+    if len(history) > 6:
+        del history[:-6]
+
+
+def _fallback_prompt(question: dict[str, Any], *, variant: int) -> str:
+    step_id = str(question.get("id") or "")
+    label = str(question.get("label") or step_id or "this")
+    qtype = str(question.get("type") or "text")
+    optional = bool(question.get("optional"))
+    required = bool(question.get("required"))
+    v = abs(int(variant or 0))
+
+    if qtype == "enum":
+        opts = [str(o) for o in (question.get("options") or []) if o is not None]
+        opts_text = " / ".join(opts) if opts else ""
+        templates = [
+            f"Quick one — which {label.lower()} should we use: {opts_text}?",
+            f"Which {label.lower()} do you want to go with ({opts_text})?",
+            f"Pick a {label.lower()} for this setup: {opts_text}.",
+            f"To keep things moving — {label.lower()}: {opts_text}?",
+        ]
+        if opts_text:
+            return templates[v % len(templates)]
+        return [f"Quick one — what should we use for {label.lower()}?", f"What should {label.lower()} be?"][v % 2]
+
+    if qtype == "phone":
+        templates = [
+            f"What’s the best phone number for {label.lower()}?",
+            f"Can you share the phone number for {label.lower()}?",
+            f"Which phone number should I use for {label.lower()}?",
+            f"Phone number for {label.lower()}?",
+        ]
+        base = templates[v % len(templates)]
+        suffix = "(Example: +91 88123413123)" if required else "(Example: +91 88123413123, or reply 'skip')"
+        return f"{base} {suffix}"
+
+    if qtype == "email":
+        templates = [
+            f"What’s the email for {label.lower()}?",
+            f"Can you share the email for {label.lower()}?",
+            f"Which email should I use for {label.lower()}?",
+            f"Email for {label.lower()}?",
+        ]
+        base = templates[v % len(templates)]
+        suffix = "(Example: name@company.com)" if required else "(Example: name@company.com, or reply 'skip')"
+        return f"{base} {suffix}"
+
+    if qtype == "date":
+        templates = [
+            f"What date should I put for {label.lower()}?",
+            f"What’s the {label.lower()} date?",
+            f"Which date should we use for {label.lower()}?",
+            f"Date for {label.lower()}?",
+        ]
+        base = templates[v % len(templates)]
+        suffix = "(YYYY-MM-DD)" if required else "(YYYY-MM-DD, or reply 'skip')"
+        return f"{base} {suffix}"
+
+    if qtype == "number":
+        templates = [
+            f"What number should I put for {label.lower()}?",
+            f"What’s the {label.lower()} value?",
+            f"Give me the number for {label.lower()}.",
+            f"{label} — what number should it be?",
+        ]
+        base = templates[v % len(templates)]
+        return base if required else f"{base} (or reply 'skip')"
+
+    if qtype == "json":
+        prompt = str(question.get("prompt") or "")
+        example = ""
+        if "Example:" in prompt:
+            example = prompt.split("Example:", 1)[1].strip()
+        templates = [
+            f"Can you paste {label.lower()} as JSON?",
+            f"Send {label.lower()} as JSON for me.",
+            f"Share {label.lower()} in JSON format.",
+            f"Drop {label.lower()} as JSON whenever you’re ready.",
+        ]
+        base = templates[v % len(templates)]
+        if example:
+            base = f"{base} Example: {example}"
+        return base if required else f"{base} (or reply 'skip')"
+
+    templates = [
+        f"What should I put for {label.lower()}?",
+        f"What do you want to set for {label.lower()}?",
+        f"Can you share {label.lower()}?",
+        f"{label} — what should it be?",
+    ]
+    base = templates[v % len(templates)]
+    if optional and not required:
+        return f"{base} (or reply 'skip')"
+    return base
+
+
 def prompt_for(state: OnboardingState, step_id: str) -> str:
     question = get_question(step_id)
     if not question:
         return "Continue."
 
-    base = str(question.get("prompt") or question.get("label") or step_id)
+    variant = _next_prompt_variant(state, step_id)
+    base = _fallback_prompt(question, variant=variant)
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
+        _push_prompt_history(state, step_id, base)
         return base
-
-    cache = state.data.get("_prompt_cache")
-    if isinstance(cache, dict):
-        cached = cache.get(step_id)
-        if isinstance(cached, str) and cached.strip():
-            return cached.strip()
 
     try:
         from google import genai  # type: ignore
     except Exception:
+        _push_prompt_history(state, step_id, base)
         return base
 
     filtered_known = {k: v for k, v in (state.data or {}).items() if isinstance(k, str) and not k.startswith("_")}
+    history = _get_prompt_history(state, step_id)[-4:]
     payload = {
         "id": question.get("id"),
         "type": question.get("type"),
@@ -61,26 +190,215 @@ def prompt_for(state: OnboardingState, step_id: str) -> str:
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     llm_prompt = (
         "Write ONE short, friendly, concrete question for the user.\n"
+        "Use a natural conversational tone.\n"
+        "Make it feel fresh; do not reuse the same phrasing.\n"
+        "Avoid these previous variants (if any):\n"
+        f"{json.dumps(history, ensure_ascii=False)}\n"
         "Ask only for the field in step_definition.\n"
         "If it is an enum, include the options.\n"
         "No extra commentary.\n\n"
         f"step_definition: {json.dumps(payload, ensure_ascii=False)}\n"
         f"known_data: {json.dumps(filtered_known, ensure_ascii=False)}\n"
+        f"variation_index: {variant}\n"
     )
     try:
         text = (client.models.generate_content(model=model, contents=llm_prompt).text or "").strip()
         if not text:
+            _push_prompt_history(state, step_id, base)
             return base
         rendered = text.splitlines()[0].strip() if len(text) > 140 else text
         if not rendered:
+            _push_prompt_history(state, step_id, base)
             return base
-        if not isinstance(cache, dict):
-            cache = {}
-        cache[step_id] = rendered
-        state.data["_prompt_cache"] = cache
+        _push_prompt_history(state, step_id, rendered)
         return rendered
     except Exception:
+        _push_prompt_history(state, step_id, base)
         return base
+
+
+def generate_turn_reply(
+    state: OnboardingState,
+    diff: dict[str, Any],
+    next_step_id: str | None,
+    user_message: str,
+    error: str | None = None
+) -> str:
+    question = get_question(next_step_id) if next_step_id else None
+    
+    # Get dynamic reasoning from the question definition
+    reason_hint = ""
+    if question:
+        reason_hint = question.get("reasoning", "is required to complete the profile")
+
+    # Fallback logic if no LLM key
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        parts = []
+        # Acknowledgement
+        if not error and diff:
+            labels = [k.split(".")[-1].replace("_", " ") for k in diff.keys()]
+            if len(labels) <= 2:
+                parts.append(f"Got it, noted your {', '.join(labels)}.")
+            else:
+                parts.append(f"Nice, got these: {', '.join(labels)}.")
+        elif error:
+            parts.append(f"Use format: {error}" if "format" in error.lower() else error)
+        
+        # Check for confusion in fallback mode
+        is_confused = re.search(r"\b(why|understand|meaning|what\s+is)\b", user_message.lower())
+        
+        if is_confused:
+            parts.append("I'm sorry if that was unclear.")
+            # Use the reasoning from the question definition
+            if reason_hint:
+                 parts.append(f"We need {next_step_id.split('.')[-1].replace('_', ' ')} because it {reason_hint[0].lower() + reason_hint[1:] if reason_hint else ''}")
+        
+        # Next Question
+        if next_step_id:
+            parts.append(prompt_for(state, next_step_id))
+        else:
+            parts.append("All done! Reviewing your details...")
+        
+        return "\n".join(parts)
+
+    # LLM Logic
+    try:
+        from google import genai  # type: ignore
+        client = genai.Client(api_key=api_key)
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        
+        question_payload = {}
+        if question:
+            question_payload = {
+                "id": question.get("id"),
+                "type": question.get("type"),
+                "options": question.get("options"),
+                "label": question.get("label"),
+                "prompt": question.get("prompt"),
+                "reasoning": question.get("reasoning"),
+            }
+
+        llm_prompt = (
+            "You are a friendly, intelligent onboarding assistant.\n"
+            "Your goal is to acknowledge what was just captured (if any), address any errors, and ask the next question naturally.\n"
+            "CRITICAL: If the user seems confused, asks 'Why?', or says 'I don't understand', you MUST explain the reasoning behind the current step before asking again.\n\n"
+            f"Context:\n"
+            f"- User's last message: '{user_message}'\n"
+            f"- Fields successfully updated just now: {json.dumps(diff, ensure_ascii=False)}\n"
+            f"- Error/Warning from system: {error or 'None'}\n"
+            f"- Next required step: {next_step_id or 'None'}\n"
+            f"- Next step definition: {json.dumps(question_payload, ensure_ascii=False)}\n"
+            f"- Current known data summary: {json.dumps({k: v for k, v in (state.data or {}).items() if not k.startswith('_')}, ensure_ascii=False)}\n"
+            f"- Hint for 'Why' we need this step: {reason_hint}\n\n"
+            "Instructions:\n"
+            "1. If 'Fields successfully updated' is not empty, acknowledge them briefly (e.g. 'Got the email', 'Noted the warehouse').\n"
+            "2. If there is an Error, explain it helpfully and ask for correction.\n"
+            "3. If the user is confused or asking a question (e.g. 'Why?', 'What is this?', 'I don't understand'):\n"
+            "   - First, apologize for any confusion.\n"
+            "   - Explain specifically WHY we need this field using the hint provided or your own knowledge.\n"
+            "   - Then, gently ask the question again or guide them on what to enter.\n"
+            "4. If 'Next required step' is present, ask the question for it. Use the step definition to know what to ask. If it's an enum, mention options naturally.\n"
+            "5. If the user's message contained info that wasn't extracted (compare user message vs updated fields), acknowledge it but say we need to focus on the current step first.\n"
+            "6. Keep the whole response under 3 sentences if possible.\n"
+            "7. Direct the user clearly to the next step."
+        )
+        
+        resp = client.models.generate_content(model=model, contents=llm_prompt)
+        text = (resp.text or "").strip()
+        if text:
+            return text
+            
+    except Exception:
+        pass
+        
+    # Fallback if LLM fails
+    parts = []
+    
+    # Check for confusion in fallback mode
+    is_confused = re.search(r"\b(why|understand|meaning|what\s+is)\b", user_message.lower())
+    
+    if is_confused:
+        parts.append("I'm sorry if that was unclear.")
+        # Try to use the canned reason if available
+        if reason_hint:
+             parts.append(f"We need {next_step_id.split('.')[-1].replace('_', ' ')} because it {reason_hint[0].lower() + reason_hint[1:] if reason_hint else ''}")
+    
+    if not error and diff:
+        parts.append("Got it.")
+    if error and not is_confused:
+        parts.append(f"Note: {error}")
+        
+    if next_step_id:
+        parts.append(prompt_for(state, next_step_id))
+    return "\n".join(parts)
+
+
+def explain_step(state: OnboardingState, step_id: str, user_question: str) -> str:
+    question = get_question(step_id) or {}
+    label = str(question.get("label") or step_id)
+    qtype = str(question.get("type") or "text")
+    options = [str(o) for o in (question.get("options") or []) if o is not None]
+    
+    reasoning = question.get("reasoning", "")
+    
+    if reasoning:
+        base = reasoning
+        if qtype == "enum" and options:
+            return f"{base} Options: {' / '.join(options)}."
+        if qtype == "date":
+            return f"{base} Use YYYY-MM-DD."
+        if qtype == "email":
+            return f"{base} Example: name@company.com."
+        if qtype == "phone":
+            return f"{base} Example: +91 88123413123."
+        return base
+
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        if qtype == "enum" and options:
+            return f"For {label.lower()}, pick one option: {' / '.join(options)}."
+        if qtype == "date":
+            return f"For {label.lower()}, send a date like 2026-01-28."
+        if qtype == "email":
+            return f"For {label.lower()}, send an email like name@company.com."
+        if qtype == "phone":
+            return f"For {label.lower()}, send a phone number like +91 88123413123."
+        if qtype == "json":
+            return f"For {label.lower()}, paste valid JSON."
+        if qtype == "number":
+            return f"For {label.lower()}, send a number."
+        return f"For {label.lower()}, just send the value you want to set."
+
+    try:
+        from google import genai  # type: ignore
+    except Exception:
+        return f"For {label.lower()}, just send the value you want to set."
+
+    client = genai.Client(api_key=api_key)
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    payload = {
+        "id": question.get("id"),
+        "type": question.get("type"),
+        "options": question.get("options"),
+        "required": question.get("required"),
+        "optional": question.get("optional"),
+        "label": question.get("label"),
+        "prompt": question.get("prompt"),
+    }
+    llm_prompt = (
+        "Explain the current onboarding question in 1-2 short sentences.\n"
+        "Include a concrete example answer if helpful.\n"
+        "Do not ask for other fields.\n"
+        "Do not mention internal system details.\n\n"
+        f"question: {json.dumps(payload, ensure_ascii=False)}\n"
+        f"user_question: {user_question}\n"
+    )
+    try:
+        text = (client.models.generate_content(model=model, contents=llm_prompt).text or "").strip()
+        return text or f"For {label.lower()}, just send the value you want to set."
+    except Exception:
+        return f"For {label.lower()}, just send the value you want to set."
 
 
 def _extract_text_value(intent: dict[str, Any], fallback: str) -> str:
@@ -370,6 +688,12 @@ def _mark_skipped(state: OnboardingState, question: dict[str, Any]) -> None:
 
 def _set_value(state: OnboardingState, step_id: str, value: Any) -> None:
     state.data[step_id] = value
+    last_applied = state.data.get("_last_applied_steps")
+    if not isinstance(last_applied, list):
+        last_applied = []
+        state.data["_last_applied_steps"] = last_applied
+    if step_id not in last_applied:
+        last_applied.append(step_id)
     if step_id not in state.completed_steps:
         state.completed_steps.append(step_id)
 
