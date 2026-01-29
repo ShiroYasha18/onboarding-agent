@@ -88,6 +88,15 @@ def _pick_by_context(state: OnboardingState, step_ids: list[str], text_lower: st
     return picked
 
 
+def _looks_like_question(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    if "?" in t:
+        return True
+    return bool(re.search(r"^(what|why|how|where|which|can\s+i|do\s+i|is\s+this|meaning|means|explain)\b", t))
+
+
 def _extract_hotel_name(message: str) -> str | None:
     text = (message or "").strip()
     if not text:
@@ -263,10 +272,16 @@ def _heuristic_extract_values(state: OnboardingState, message: str) -> dict[str,
             if len(matches) == 1:
                 values[state.current_step] = matches[0]
 
-    if "warehouse" in _QUESTIONS_BY_ID and "ypr" in tokens and "jpn" not in tokens:
-        values["warehouse"] = "YPR"
-    if "warehouse" in _QUESTIONS_BY_ID and "jpn" in tokens and "ypr" not in tokens:
-        values["warehouse"] = "JPN"
+    if "warehouse" in _QUESTIONS_BY_ID:
+        # Only extract warehouse if it's the current step OR explicitly mentioned
+        is_warehouse_step = state.current_step == "warehouse"
+        explicit_warehouse = "warehouse" in text_lower
+
+        if is_warehouse_step or explicit_warehouse:
+            if "ypr" in tokens and "jpn" not in tokens:
+                values["warehouse"] = "YPR"
+            if "jpn" in tokens and "ypr" not in tokens:
+                values["warehouse"] = "JPN"
 
     if "agreement_details.credit_days" in _QUESTIONS_BY_ID and "credit" in text_lower:
         if "15" in tokens and "30" not in tokens:
@@ -300,6 +315,7 @@ def classify(state: OnboardingState) -> OnboardingState:
         current_step_fields=[state.current_step],
         known_data=state.data,
         step_definitions=_STEP_DEFS,
+        pending_data=state.pending_data,
     )
     state.last_intent = intent.model_dump()
     state.intent_source = getattr(intent, "source", None)
@@ -313,26 +329,67 @@ def classify(state: OnboardingState) -> OnboardingState:
             should_fallback = True
 
     if should_fallback:
-        extracted = _heuristic_extract_values(state, message)
-        if extracted:
-            state.last_intent = {
-                "intent": "answer",
-                "step_id": state.current_step,
-                "value": extracted,
-                "confidence": 0.65,
-            }
-            state.intent_source = "heuristic"
-            return state
+        # Minimal, safe fallback that avoids defaulting to ANSWER:
+        tokens = _token_set(message)
+        text_lower = (message or "").lower()
 
-        question = engine.get_question(state.current_step)
-        if question:
-            state.last_intent = {
-                "intent": "answer",
-                "step_id": state.current_step,
-                "value": {state.current_step: message},
-                "confidence": 0.2,
-            }
-            state.intent_source = "fallback"
+        q = engine.get_question(state.current_step)
+        if q:
+            # If it looks like a question → clarification
+            if _looks_like_question(message):
+                state.last_intent = {
+                    "intent": "clarification",
+                    "step_id": state.current_step,
+                    "value": None,
+                    "confidence": 0.6,
+                    "thought": "Fallback detected a question."
+                }
+                state.intent_source = "fallback_safety"
+                return state
+
+            # If user says skip → skip
+            if re.search(r"\b(skip|n/?a|none|null)\b", text_lower):
+                state.last_intent = {
+                    "intent": "skip",
+                    "step_id": state.current_step,
+                    "value": None,
+                    "confidence": 0.9
+                }
+                state.intent_source = "fallback_safety"
+                return state
+
+            # Exact enum selection on current step only
+            if str(q.get("type")) == "enum":
+                options = [str(o) for o in (q.get("options") or [])]
+                matches = [opt for opt in options if _option_matches_tokens(opt, tokens)]
+                if len(matches) == 1:
+                    state.last_intent = {
+                        "intent": "answer",
+                        "step_id": state.current_step,
+                        "value": {state.current_step: matches[0]},
+                        "confidence": 0.8,
+                        "requires_confirmation": False
+                    }
+                    state.intent_source = "heuristic"
+                    return state
+
+            # Very short or unclear → confusion
+            is_very_short = len(message) < 4
+            is_common_word = text_lower in {"ok", "yes", "yep", "no", "na"}
+            if is_very_short and not is_common_word:
+                state.last_intent = {
+                    "intent": "confusion",
+                    "step_id": state.current_step,
+                    "value": None,
+                    "confidence": 0.4,
+                    "thought": "Fallback treated short/unclear text as confusion."
+                }
+                state.intent_source = "fallback_safety"
+                return state
+
+        # Default fallback
+        state.last_intent = {"intent": "unknown", "confidence": 0.0}
+        state.intent_source = "fallback"
     return state
 
 

@@ -234,7 +234,7 @@ def _looks_like_question(text: str) -> bool:
         return False
     if "?" in t:
         return True
-    return bool(re.search(r"^(what|why|how|where|which|can\s+i|do\s+i|is\s+this|meaning|explain)\b", t))
+    return bool(re.search(r"^(what|why|how|where|which|can\s+i|do\s+i|is\s+this|meaning|means|explain)\b", t))
 
 
 def _answer_like_for_step(step_id: str, message: str) -> bool:
@@ -398,24 +398,8 @@ def chat(req: ChatRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Session not found")
 
     if req.action == "message":
-        message = (req.message or "").strip()
-        if message and _looks_like_question(message) and not _answer_like_for_step(state.current_step, message):
-            target_step = _pick_step_for_clarification(message, state.current_step)
-            explanation = engine.explain_step(state, target_step, message)
-            prompt = _prompt_for(state, state.current_step)
-            if target_step != state.current_step and prompt:
-                reply = f"{explanation}\n\nFor now:\n{prompt}"
-            else:
-                reply = explanation if not prompt else f"{explanation}\n{prompt}"
-            save_state(req.session_id, state)
-            return {
-                "reply": reply,
-                "current_step": state.current_step,
-                "data": state.data,
-                "completed_steps": state.completed_steps,
-                "completed": state.completed,
-                "intent_source": "clarify",
-            }
+        # Pass through to graph for intelligent handling
+        pass
 
     if req.action == "set":
         if not req.step_id:
@@ -432,6 +416,9 @@ def chat(req: ChatRequest) -> dict[str, Any]:
         state.last_user_message = req.message or ""
         state.last_intent = None
         state.intent_source = None
+
+    prev_step = state.current_step
+    prev_mode = state.mode
 
     next_state = app_graph.invoke(state)
     if not isinstance(next_state, OnboardingState):
@@ -450,7 +437,24 @@ def chat(req: ChatRequest) -> dict[str, Any]:
         if len(applied_labels) > 4:
             applied_labels = applied_labels[:4]
 
+    did_commit = bool(applied_steps)
+    try:
+        print(
+            "[TRACE]",
+            "Q_before:",
+            prev_step,
+            "Q_after:",
+            next_state.current_step,
+            "MODE:",
+            next_state.mode,
+            "COMMIT:",
+            did_commit,
+        )
+    except Exception:
+        pass
+
     next_state.last_user_message = None
+    intent_result = next_state.last_intent
     next_state.last_intent = None
 
     if next_state.last_error:
@@ -462,11 +466,9 @@ def chat(req: ChatRequest) -> dict[str, Any]:
             diff, 
             next_state.current_step if not next_state.completed else None,
             req.message or "",
-            error=next_state.last_error
+            error=next_state.last_error,
+            intent_result=intent_result
         )
-    elif next_state.confirmed:
-        reply = "Confirmed."
-        invalidated = []
     elif next_state.completed:
         # Use existing summary logic for now, but wrapped in a nice message
         summary = _review_summary(next_state)
@@ -483,8 +485,23 @@ def chat(req: ChatRequest) -> dict[str, Any]:
             next_state,
             diff_context,
             next_state.current_step,
-            req.message or ""
+            req.message or "",
+            intent_result=intent_result
         )
+
+    # Append minimal intent debug info to reply for transparency
+    if intent_result:
+        try:
+            dbg_intent = str(intent_result.get("intent") or "unknown")
+            dbg_conf = intent_result.get("confidence")
+            dbg_conf_str = f"{float(dbg_conf):.2f}" if isinstance(dbg_conf, (int, float)) else "-"
+            dbg_src = str(next_state.intent_source or intent_result.get("source") or "none")
+            dbg_rc = "true" if bool(intent_result.get("requires_confirmation")) else "false"
+            dbg_step = str(intent_result.get("step_id") or next_state.current_step or "")
+            debug_line = f"[intent={dbg_intent} step={dbg_step} conf={dbg_conf_str} source={dbg_src} requires_confirmation={dbg_rc}]"
+            reply = f"{reply}\n\n{debug_line}".strip()
+        except Exception:
+            pass
 
     # Apply invalidations if any
     if invalidated:
@@ -525,4 +542,7 @@ def chat(req: ChatRequest) -> dict[str, Any]:
         "completed_steps": next_state.completed_steps,
         "completed": next_state.completed,
         "intent_source": next_state.intent_source,
+        "intent": intent_result or {"intent": "unknown"},
+        "pending_value": next_state.pending_value,
+        "mode": next_state.mode,
     }

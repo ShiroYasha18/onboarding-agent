@@ -18,3 +18,6 @@ class OnboardingState(BaseModel):
     last_error: Optional[str] = None
     completed: bool = False
     confirmed: bool = False
+    pending_data: Optional[Dict[str, Any]] = None
+    pending_value: Optional[Dict[str, Any]] = None
+    mode: str = "asking"

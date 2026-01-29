@@ -64,6 +64,21 @@ def _push_prompt_history(state: OnboardingState, step_id: str, prompt: str) -> N
         del history[:-6]
 
 
+def _push_qa_history(state: OnboardingState, step_id: str, question: str, answer: Any) -> None:
+    store = state.data.get("_qa_history")
+    if not isinstance(store, list):
+        store = []
+        state.data["_qa_history"] = store
+    item = {
+        "step_id": str(step_id),
+        "question": str(question or "").strip(),
+        "answer": answer,
+    }
+    store.append(item)
+    if len(store) > 5:
+        del store[:-5]
+
+
 def _fallback_prompt(question: dict[str, Any], *, variant: int) -> str:
     step_id = str(question.get("id") or "")
     label = str(question.get("label") or step_id or "this")
@@ -176,6 +191,14 @@ def prompt_for(state: OnboardingState, step_id: str) -> str:
 
     filtered_known = {k: v for k, v in (state.data or {}).items() if isinstance(k, str) and not k.startswith("_")}
     history = _get_prompt_history(state, step_id)[-4:]
+    previous_prompt = history[-1] if history else ""
+    last_user_message = (state.last_user_message or "").strip()
+    last_intent = state.last_intent or {}
+    last_intent_type = str(last_intent.get("intent") or "")
+    pending_data = state.pending_data if isinstance(state.pending_data, dict) else None
+    qa_store = state.data.get("_qa_history")
+    qa_history = qa_store if isinstance(qa_store, list) else []
+    recent_qa = qa_history[-5:]
     payload = {
         "id": question.get("id"),
         "type": question.get("type"),
@@ -189,17 +212,24 @@ def prompt_for(state: OnboardingState, step_id: str) -> str:
     client = genai.Client(api_key=api_key)
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     llm_prompt = (
-        "Write ONE short, friendly, concrete question for the user.\n"
-        "Use a natural conversational tone.\n"
-        "Make it feel fresh; do not reuse the same phrasing.\n"
-        "Avoid these previous variants (if any):\n"
+        "Write ONE short, friendly, conversational question.\n"
+        "Keep it natural and contextual: lightly acknowledge what the user just said and smoothly segue into the ask.\n"
+        "Do not apologize or over-explain; avoid robotic phrasing.\n"
+        "Avoid repeating prior phrasings:\n"
         f"{json.dumps(history, ensure_ascii=False)}\n"
-        "Ask only for the field in step_definition.\n"
-        "If it is an enum, include the options.\n"
-        "No extra commentary.\n\n"
-        f"step_definition: {json.dumps(payload, ensure_ascii=False)}\n"
-        f"known_data: {json.dumps(filtered_known, ensure_ascii=False)}\n"
-        f"variation_index: {variant}\n"
+        "Constraints:\n"
+        "- Ask ONLY for the field in 'step_definition'.\n"
+        "- If it is an enum, include the options inline.\n"
+        "- Keep it under ~80 characters if possible.\n\n"
+        "Context:\n"
+        f"- previous_prompt: {json.dumps(previous_prompt, ensure_ascii=False)}\n"
+        f"- last_user_message: {json.dumps(last_user_message, ensure_ascii=False)}\n"
+        f"- last_intent_type: {json.dumps(last_intent_type, ensure_ascii=False)}\n"
+        f"- pending_data: {json.dumps(pending_data or {}, ensure_ascii=False)}\n"
+        f"- step_definition: {json.dumps(payload, ensure_ascii=False)}\n"
+        f"- known_data: {json.dumps(filtered_known, ensure_ascii=False)}\n"
+        f"- last_qa_pairs: {json.dumps(recent_qa, ensure_ascii=False)}\n"
+        f"- variation_index: {variant}\n"
     )
     try:
         text = (client.models.generate_content(model=model, contents=llm_prompt).text or "").strip()
@@ -222,9 +252,19 @@ def generate_turn_reply(
     diff: dict[str, Any],
     next_step_id: str | None,
     user_message: str,
-    error: str | None = None
+    error: str | None = None,
+    intent_result: dict[str, Any] | None = None
 ) -> tuple[str, list[str]]:
-    question = get_question(next_step_id) if next_step_id else None
+    if state.mode == "confirming" and state.pending_value:
+        pairs = []
+        for k, v in state.pending_value.items():
+            q = get_question(k) or {}
+            label = str(q.get("label") or k.split(".")[-1].replace("_", " "))
+            pairs.append(f"{label}: {v}")
+        summary = "; ".join(pairs) if pairs else ""
+        return f"I understood {summary}. Is that correct? (yes / no)", []
+    effective_next = next_step_id or state.current_step
+    question = get_question(effective_next) if effective_next else None
     
     # Get dynamic reasoning from the question definition
     reason_hint = ""
@@ -246,7 +286,9 @@ def generate_turn_reply(
             parts.append(f"Use format: {error}" if "format" in error.lower() else error)
         
         # Check for confusion in fallback mode
-        is_confused = re.search(r"\b(why|understand|meaning|what\s+is)\b", user_message.lower())
+        is_confused = False
+        if intent_result and intent_result.get("intent") == "clarification":
+            is_confused = True
         
         if is_confused:
             parts.append("I'm sorry if that was unclear.")
@@ -255,8 +297,8 @@ def generate_turn_reply(
                  parts.append(f"We need {next_step_id.split('.')[-1].replace('_', ' ')} because it {reason_hint[0].lower() + reason_hint[1:] if reason_hint else ''}")
         
         # Next Question
-        if next_step_id:
-            parts.append(prompt_for(state, next_step_id))
+        if effective_next:
+            parts.append(prompt_for(state, effective_next))
         else:
             parts.append("All done! Reviewing your details...")
         
@@ -295,6 +337,13 @@ def generate_turn_reply(
                         "reasoning": question.get("reasoning"),
                     })
 
+        intent_thought = intent_result.get("thought") if intent_result else None
+        intent_type = intent_result.get("intent") if intent_result else None
+        is_clarification = intent_type in {"clarification", "confusion", "skip"} if intent_type else False
+        qa_store = state.data.get("_qa_history")
+        qa_history = qa_store if isinstance(qa_store, list) else []
+        recent_qa = qa_history[-5:]
+
         llm_prompt = (
             "You are a friendly, intelligent onboarding assistant.\n"
             "Your goal is to acknowledge what was just captured (if any), address any errors, and ask the next question(s) naturally.\n"
@@ -306,12 +355,15 @@ def generate_turn_reply(
             f"- Error/Warning from system: {error or 'None'}\n"
             f"- Upcoming steps (in order): {json.dumps(upcoming_steps_payload, ensure_ascii=False)}\n"
             f"- Current known data summary: {json.dumps({k: v for k, v in (state.data or {}).items() if not k.startswith('_')}, ensure_ascii=False)}\n"
-            f"- Hint for 'Why' we need the current step: {reason_hint}\n\n"
+            f"- Hint for 'Why' we need the current step: {reason_hint}\n"
+            f"- Intent analysis thought: {intent_thought or 'None'}\n"
+            f"- Is clarification request: {is_clarification}\n"
+            f"- Last 5 Q&A pairs: {json.dumps(recent_qa, ensure_ascii=False)}\n\n"
             "Instructions:\n"
             "1. Check 'Fields successfully updated'. If any value looks like a user question (e.g. starts with 'Should I', 'Why', 'What') or is clearly a misinterpretation of the user's intent, add its key to 'invalidated_fields'.\n"
             "2. If 'Fields successfully updated' is valid, acknowledge them briefly (e.g. 'Got the email', 'Noted the warehouse').\n"
             "3. If there is an Error, explain it helpfully and ask for correction.\n"
-            "4. If the user is confused or asking a question:\n"
+            "4. If 'Is clarification request' is true OR the user is confused:\n"
             "   - First, apologize for any confusion.\n"
             "   - Explain specifically WHY we need this field using the hint provided or your own knowledge.\n"
             "   - Then, gently ask the question again.\n"
@@ -347,7 +399,9 @@ def generate_turn_reply(
     parts = []
     
     # Check for confusion in fallback mode
-    is_confused = re.search(r"\b(why|understand|meaning|what\s+is)\b", user_message.lower())
+    is_confused = False
+    if intent_result and intent_result.get("intent") in {"clarification", "confusion", "skip"}:
+        is_confused = True
     
     if is_confused:
         parts.append("I'm sorry if that was unclear.")
@@ -360,8 +414,8 @@ def generate_turn_reply(
     if error and not is_confused:
         parts.append(f"Note: {error}")
         
-    if next_step_id:
-        parts.append(prompt_for(state, next_step_id))
+    if effective_next:
+        parts.append(prompt_for(state, effective_next))
     return "\n".join(parts), []
 
 
@@ -456,175 +510,119 @@ def _is_decline_text(text: str) -> bool:
         return True
     return bool(re.search(r"\b(no|nope|not\s+yet|don'?t)\b", lowered))
 
+def _low_confidence(user_text: str, value: Any) -> bool:
+    t = (user_text or "").strip().lower()
+    if not t and value is None:
+        return True
+    markers = ["maybe", "i dont know", "i don't know", "not sure", "?"]
+    if any(m in t for m in markers):
+        return True
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if any(sep in s for sep in ["/", "|"]) or re.search(r"\b(or|aka)\b", s):
+            return True
+    return False
 
 def apply_intent(state: OnboardingState) -> OnboardingState:
     state.last_error = None
     intent = state.last_intent or {}
     intent_type = intent.get("intent")
-
-    if intent_type in {"answer", "correct_step", "go_to_step"} and state.confirmed:
-        state.confirmed = False
-
-    if state.current_step == "review" and intent_type in {"answer", "unknown"}:
-        text = _extract_text_value(intent, state.last_user_message or "")
+    
+    if state.mode == "confirming":
+        text = state.last_user_message or ""
+        
         if _is_confirm_text(text):
             state.confirmed = True
-            state.completed = True
-            state.current_step = "done"
+        elif _is_decline_text(text):
+            state.pending_value = None
+            state.pending_data = None
+            state.mode = "asking"
+            state.confirmed = False
             return state
-        state.last_error = (
-            "Tell me what you'd like to change (e.g., 'change hotel name to ...' or 'go to billing address'), "
-            "or reply 'confirm' to finish."
-            if _is_decline_text(text) or text
-            else "Reply 'confirm' to finish, or tell me what you'd like to change."
-        )
+        else:
+            state.last_error = "Please reply yes or no."
+            return state
+
+    if state.confirmed and state.pending_value:
+        for step_id, val in state.pending_value.items():
+            state = _apply_answer_value(state, step_id, val)
+            
+        state.pending_value = None
+        state.pending_data = None
+        state.confirmed = False
+        state.mode = "asking"
         return state
-
-    value_map = intent.get("value")
-    if intent_type in {"answer", "correct_step"} and isinstance(value_map, dict) and value_map:
-        if intent_type == "answer":
-            ordered_pairs: list[tuple[str, Any]] = []
-            for sid, raw in value_map.items():
-                if not isinstance(sid, str) or sid not in QUESTIONS_BY_ID:
-                    continue
-                ordered_pairs.append((sid, raw))
-
-            if ordered_pairs and (len(ordered_pairs) > 1 or ordered_pairs[0][0] != state.current_step):
-                ordered_pairs.sort(key=lambda p: FLOW.index(p[0]) if p[0] in FLOW else 10_000)
-                for sid, raw in ordered_pairs:
-                    state = _apply_correction_value(state, sid, raw)
-                    if state.last_error:
-                        return state
-                return resolve_next_step(state)
-
-            raw = value_map.get(state.current_step)
-            if raw is None and len(value_map) == 1:
-                raw = next(iter(value_map.values()))
-            if raw is None:
-                state.last_error = "Could you rephrase that?"
-                return state
-            return _apply_answer_value(state, state.current_step, raw)
-
-        step_id = intent.get("step_id")
-        if isinstance(step_id, str) and step_id:
-            raw = value_map.get(step_id)
-            if raw is None and len(value_map) == 1:
-                raw = next(iter(value_map.values()))
-            if raw is None:
-                state.last_error = "Could you rephrase that?"
-                return state
-            state = _apply_correction_value(state, step_id, raw)
-            if state.last_error:
-                return state
-            extras: list[tuple[str, Any]] = []
-            for sid, v in value_map.items():
-                if sid == step_id:
-                    continue
-                if not isinstance(sid, str) or sid not in QUESTIONS_BY_ID:
-                    continue
-                extras.append((sid, v))
-            if extras:
-                extras.sort(key=lambda p: FLOW.index(p[0]) if p[0] in FLOW else 10_000)
-                for sid, v in extras:
-                    state = _apply_correction_value(state, sid, v)
-                    if state.last_error:
-                        return state
-            return resolve_next_step(state)
-
-        applied_any = False
-        for sid, raw in value_map.items():
-            if not isinstance(sid, str) or sid not in QUESTIONS_BY_ID:
-                continue
-            state = _apply_correction_value(state, sid, raw)
-            if state.last_error:
-                return state
-            applied_any = True
-        if not applied_any:
-            state.last_error = "Could you rephrase that?"
-            return state
-        return resolve_next_step(state)
 
     if intent_type == "answer":
+        val = intent.get("value")
+        if isinstance(val, dict) and val:
+            if len(val) == 1 and state.current_step in val:
+                raw = val[state.current_step]
+                q = get_question(state.current_step) or {}
+                qtype = str(q.get("type") or "text")
+                low = _low_confidence(state.last_user_message or "", raw)
+                simple_types = {"phone", "email", "date", "number", "enum"}
+                if qtype in simple_types and not low:
+                    state = _apply_answer_value(state, state.current_step, raw)
+                    return state
+            state.pending_value = val
+            state.pending_data = val
+            state.mode = "confirming"
+            state.confirmed = False
+            return state
+
+    elif intent_type in {"correct_step", "correction"}:
+        val = intent.get("value")
+        if isinstance(val, dict):
+            state.pending_value = val
+            state.pending_data = val
+            state.mode = "confirming"
+            state.confirmed = False
+            return state
+
+    elif intent_type == "go_to_step":
+        target = intent.get("step_id")
+        if target and target in QUESTIONS_BY_ID:
+            state.current_step = target
+            state.mode = "asking"
+            return state
+    
+    elif intent_type in {"clarification", "confusion", "skip"}:
         step_id = state.current_step
-        question = get_question(step_id)
-        if not question:
-            state.last_error = "Unknown step"
+        q = get_question(step_id) or {}
+        required = bool(q.get("required"))
+        
+        if intent_type == "skip" and required:
+            state.last_error = "This field is required."
             return state
-
-        raw = intent.get("value")
-        if isinstance(raw, dict) and raw:
-            raw = raw.get(step_id, next(iter(raw.values()), raw))
-        ok, normalized, error = _normalize_value(question, raw)
-        if not ok:
-            state.last_error = error
-            return state
-
-        prior = state.data.get(step_id, None)
-        if step_id in state.completed_steps and prior != normalized:
-            invalidate_downstream(state, step_id)
-
-        _set_value(state, step_id, normalized)
-        _apply_special_rules(state, step_id, normalized)
-        return resolve_next_step(state)
-
-    if intent_type == "correct_step":
-        step_id = intent.get("step_id")
-        if not isinstance(step_id, str) or not step_id:
-            state.last_error = "Invalid step"
-            return state
-        question = get_question(step_id)
-        if not question:
-            state.last_error = "Unknown step"
-            return state
-
-        raw = intent.get("value")
-        if isinstance(raw, dict) and raw:
-            raw = raw.get(step_id, next(iter(raw.values()), raw))
-        ok, normalized, error = _normalize_value(question, raw)
-        if not ok:
-            state.last_error = error
-            return state
-
-        prior = state.data.get(step_id, None)
-        _set_value(state, step_id, normalized)
-        if step_id in state.completed_steps and prior != normalized:
-            invalidate_downstream(state, step_id)
-        _apply_special_rules(state, step_id, normalized)
-        return resolve_next_step(state)
-
-    if intent_type == "go_to_step":
-        step_id = intent.get("step_id")
-        if not isinstance(step_id, str) or not step_id:
-            state.last_error = "Unknown step"
-            return state
-
-        target: str | None = None
-        if step_id in QUESTIONS_BY_ID:
-            target = step_id
-        else:
-            prefix = step_id.rstrip(".")
-            matches = [sid for sid in FLOW if sid == prefix or sid.startswith(prefix + ".")]
-            if matches:
-                target = matches[0]
-
-        if not target:
-            state.last_error = "Unknown step"
-            return state
-
-        question = QUESTIONS_BY_ID.get(target)
-        if question and not _is_applicable(state, question):
-            state.last_error = "That step isn’t applicable based on earlier answers."
-            return state
-
-        state.current_step = target
-        state.completed = False
+            
+        state.mode = "clarifying"
         return state
 
-    if intent_type == "unknown" and (state.intent_source or "").strip().lower() == "none":
-        state.last_error = "LLM is not configured (set GEMINI_API_KEY)."
-        return state
+    # Special handling for Review step completion
+    if state.current_step == "review" and not state.last_error:
+        text = state.last_user_message or ""
+        # If user says confirm/submit/done in review step
+        if _is_confirm_text(text):
+             state.confirmed = True
+             state.completed = True
+             state.current_step = "done"
+             return state
+        
+        # If not confirming, assume they might want to change something
+        # If intent is unknown, give guidance
+        if intent_type == "unknown":
+            state.last_error = (
+                "Tell me what you'd like to change (e.g., 'change hotel name to ...' or 'go to billing address'), "
+                "or reply 'confirm' to finish."
+                if _is_decline_text(text) or text
+                else "Reply 'confirm' to finish, or tell me what you'd like to change."
+            )
 
-    state.last_error = "Could you rephrase that?"
+    # Fallback
+    if not state.last_error and not intent_type == "unknown":
+        state.last_error = "I didn't quite get that."
+    
     return state
 
 
@@ -645,6 +643,8 @@ def _apply_answer_value(state: OnboardingState, step_id: str, raw: Any) -> Onboa
 
     _set_value(state, step_id, normalized)
     _apply_special_rules(state, step_id, normalized)
+    label = str(question.get("label") or question.get("prompt") or step_id)
+    _push_qa_history(state, step_id, label, normalized)
     return resolve_next_step(state)
 
 
