@@ -187,7 +187,7 @@ def prompt_for(state: OnboardingState, step_id: str) -> str:
     }
 
     client = genai.Client(api_key=api_key)
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     llm_prompt = (
         "Write ONE short, friendly, concrete question for the user.\n"
         "Use a natural conversational tone.\n"
@@ -223,7 +223,7 @@ def generate_turn_reply(
     next_step_id: str | None,
     user_message: str,
     error: str | None = None
-) -> str:
+) -> tuple[str, list[str]]:
     question = get_question(next_step_id) if next_step_id else None
     
     # Get dynamic reasoning from the question definition
@@ -260,54 +260,85 @@ def generate_turn_reply(
         else:
             parts.append("All done! Reviewing your details...")
         
-        return "\n".join(parts)
+        return "\n".join(parts), []
 
     # LLM Logic
     try:
         from google import genai  # type: ignore
         client = genai.Client(api_key=api_key)
-        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
         
-        question_payload = {}
-        if question:
-            question_payload = {
-                "id": question.get("id"),
-                "type": question.get("type"),
-                "options": question.get("options"),
-                "label": question.get("label"),
-                "prompt": question.get("prompt"),
-                "reasoning": question.get("reasoning"),
-            }
+        # Calculate upcoming steps (max 3) for grouping
+        upcoming_steps_payload = []
+        if next_step_id:
+            try:
+                start_idx = FLOW.index(next_step_id)
+                # Take next 3 steps
+                candidates = FLOW[start_idx : start_idx + 3]
+                for cid in candidates:
+                    q_def = QUESTIONS_BY_ID.get(cid)
+                    if q_def:
+                        upcoming_steps_payload.append({
+                            "id": q_def.get("id"),
+                            "label": q_def.get("label"),
+                            "type": q_def.get("type"),
+                            "options": q_def.get("options"),
+                            "reasoning": q_def.get("reasoning"),
+                        })
+            except ValueError:
+                if question:
+                    upcoming_steps_payload.append({
+                        "id": question.get("id"),
+                        "label": question.get("label"),
+                        "type": question.get("type"),
+                        "options": question.get("options"),
+                        "reasoning": question.get("reasoning"),
+                    })
 
         llm_prompt = (
             "You are a friendly, intelligent onboarding assistant.\n"
-            "Your goal is to acknowledge what was just captured (if any), address any errors, and ask the next question naturally.\n"
-            "CRITICAL: If the user seems confused, asks 'Why?', or says 'I don't understand', you MUST explain the reasoning behind the current step before asking again.\n\n"
+            "Your goal is to acknowledge what was just captured (if any), address any errors, and ask the next question(s) naturally.\n"
+            "CRITICAL: If the user seems confused, asks 'Why?', or says 'I don't understand', you MUST explain the reasoning behind the current step before asking again.\n"
+            "CRITICAL: If 'Fields successfully updated' contains values that seem to be QUESTIONS (e.g. 'Should I...', 'Why...') or are clearly wrong/misinterpreted, you MUST identify them to be removed.\n\n"
             f"Context:\n"
             f"- User's last message: '{user_message}'\n"
             f"- Fields successfully updated just now: {json.dumps(diff, ensure_ascii=False)}\n"
             f"- Error/Warning from system: {error or 'None'}\n"
-            f"- Next required step: {next_step_id or 'None'}\n"
-            f"- Next step definition: {json.dumps(question_payload, ensure_ascii=False)}\n"
+            f"- Upcoming steps (in order): {json.dumps(upcoming_steps_payload, ensure_ascii=False)}\n"
             f"- Current known data summary: {json.dumps({k: v for k, v in (state.data or {}).items() if not k.startswith('_')}, ensure_ascii=False)}\n"
-            f"- Hint for 'Why' we need this step: {reason_hint}\n\n"
+            f"- Hint for 'Why' we need the current step: {reason_hint}\n\n"
             "Instructions:\n"
-            "1. If 'Fields successfully updated' is not empty, acknowledge them briefly (e.g. 'Got the email', 'Noted the warehouse').\n"
-            "2. If there is an Error, explain it helpfully and ask for correction.\n"
-            "3. If the user is confused or asking a question (e.g. 'Why?', 'What is this?', 'I don't understand'):\n"
+            "1. Check 'Fields successfully updated'. If any value looks like a user question (e.g. starts with 'Should I', 'Why', 'What') or is clearly a misinterpretation of the user's intent, add its key to 'invalidated_fields'.\n"
+            "2. If 'Fields successfully updated' is valid, acknowledge them briefly (e.g. 'Got the email', 'Noted the warehouse').\n"
+            "3. If there is an Error, explain it helpfully and ask for correction.\n"
+            "4. If the user is confused or asking a question:\n"
             "   - First, apologize for any confusion.\n"
             "   - Explain specifically WHY we need this field using the hint provided or your own knowledge.\n"
-            "   - Then, gently ask the question again or guide them on what to enter.\n"
-            "4. If 'Next required step' is present, ask the question for it. Use the step definition to know what to ask. If it's an enum, mention options naturally.\n"
-            "5. If the user's message contained info that wasn't extracted (compare user message vs updated fields), acknowledge it but say we need to focus on the current step first.\n"
-            "6. Keep the whole response under 3 sentences if possible.\n"
-            "7. Direct the user clearly to the next step."
+            "   - Then, gently ask the question again.\n"
+            "5. Ask the next required question from 'Upcoming steps'.\n"
+            "   - INTELLIGENT GROUPING: You MAY ask for the next 2-3 steps TOGETHER if they are naturally related (e.g. name, email, phone).\n"
+            "   - If the next step is complex or unrelated, just ask one.\n"
+            "   - If asking multiple, make it clear what you need.\n"
+            "6. Keep the whole response conversational and under 3-4 sentences.\n\n"
+            "Output JSON format:\n"
+            "{\n"
+            "  \"reply\": \"string\",\n"
+            "  \"invalidated_fields\": [\"field_key1\", \"field_key2\"]\n"
+            "}"
         )
         
-        resp = client.models.generate_content(model=model, contents=llm_prompt)
+        resp = client.models.generate_content(
+            model=model, 
+            contents=llm_prompt,
+            config={"response_mime_type": "application/json"}
+        )
         text = (resp.text or "").strip()
         if text:
-            return text
+            try:
+                data = json.loads(text)
+                return data.get("reply", ""), data.get("invalidated_fields", [])
+            except json.JSONDecodeError:
+                return text, []
             
     except Exception:
         pass
@@ -331,7 +362,7 @@ def generate_turn_reply(
         
     if next_step_id:
         parts.append(prompt_for(state, next_step_id))
-    return "\n".join(parts)
+    return "\n".join(parts), []
 
 
 def explain_step(state: OnboardingState, step_id: str, user_question: str) -> str:
@@ -376,7 +407,7 @@ def explain_step(state: OnboardingState, step_id: str, user_question: str) -> st
         return f"For {label.lower()}, just send the value you want to set."
 
     client = genai.Client(api_key=api_key)
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     payload = {
         "id": question.get("id"),
         "type": question.get("type"),

@@ -457,7 +457,7 @@ def chat(req: ChatRequest) -> dict[str, Any]:
         # If there's an error, let the intelligent generator handle it
         # We pass the error message and the user's input so it can be contextual
         diff = {}  # No updates if error
-        reply = engine.generate_turn_reply(
+        reply, invalidated = engine.generate_turn_reply(
             next_state, 
             diff, 
             next_state.current_step if not next_state.completed else None,
@@ -466,10 +466,12 @@ def chat(req: ChatRequest) -> dict[str, Any]:
         )
     elif next_state.confirmed:
         reply = "Confirmed."
+        invalidated = []
     elif next_state.completed:
         # Use existing summary logic for now, but wrapped in a nice message
         summary = _review_summary(next_state)
         reply = f"{summary}\n\nReply 'confirm' to finish, or tell me what to change."
+        invalidated = []
     else:
         # Success case: We have updates (applied_labels) and a next step
         # Construct a diff-like object for the generator
@@ -477,12 +479,42 @@ def chat(req: ChatRequest) -> dict[str, Any]:
         # We'll map labels back to a dummy dict for display purposes in the prompt
         diff_context = {lbl: "updated" for lbl in applied_labels}
         
-        reply = engine.generate_turn_reply(
+        reply, invalidated = engine.generate_turn_reply(
             next_state,
             diff_context,
             next_state.current_step,
             req.message or ""
         )
+
+    # Apply invalidations if any
+    if invalidated:
+        for field in invalidated:
+            # Try to map back to actual keys if possible, or just use what LLM returned
+            # The LLM sees the keys in 'diff' (which are labels in one case, but keys in another)
+            # Wait, in the success case 'diff_context' uses labels. The LLM might return labels.
+            # But in engine.py we pass 'diff' as is in the error case.
+            
+            # Actually, in the success case (lines 478), 'diff_context' keys are LABELS.
+            # The LLM will return these LABELS in 'invalidated_fields'.
+            # We need to map labels back to step_ids to remove them from data.
+            # Or we can just try to match them.
+            
+            # Let's try to remove by exact key first
+            next_state.data.pop(field, None)
+            if field in next_state.completed_steps:
+                next_state.completed_steps.remove(field)
+                
+            # Also try to remove by finding the step_id that matches the label
+            for step_id, q in QUESTIONS_BY_ID.items():
+                lbl = str(q.get("label") or q.get("prompt") or step_id).strip()
+                if lbl == field:
+                    next_state.data.pop(step_id, None)
+                    if step_id in next_state.completed_steps:
+                        next_state.completed_steps.remove(step_id)
+                        
+            # If we invalidated the current step, we might want to ensure it's not marked as skipped
+            if field == next_state.current_step:
+                 pass 
 
     save_state(req.session_id, next_state)
 

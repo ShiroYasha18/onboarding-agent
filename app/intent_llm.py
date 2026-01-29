@@ -184,7 +184,7 @@ def _extract_with_gemini(
     except Exception:
         return None
     client = genai.Client(api_key=api_key)
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
     filtered_known = {k: v for k, v in (known_data or {}).items() if isinstance(k, str) and not k.startswith("_")}
     replacements = {
