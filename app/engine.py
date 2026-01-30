@@ -662,17 +662,9 @@ def apply_intent(state: OnboardingState) -> OnboardingState:
 
     if state.mode == "confirming":
         text = state.last_user_message or ""
-        intent_value = intent.get("value")
         pending = state.pending_value if isinstance(state.pending_value, dict) else {}
 
-        if isinstance(intent_value, dict) and intent_value:
-            merged = dict(pending)
-            merged.update(intent_value)
-            state.pending_value = merged
-            state.pending_data = merged
-            pending = merged
-
-        if _is_confirm_text(text) or intent_type == "answer":
+        if _is_confirm_text(text):
             if not pending:
                 state.last_error = "There is nothing to confirm."
                 return state
@@ -684,15 +676,24 @@ def apply_intent(state: OnboardingState) -> OnboardingState:
             state.mode = "asking"
             return state
 
-        if intent_type in {"clarification", "confusion"}:
-            state.last_error = "If this is not correct, please tell me what to change."
-            return state
-
         if intent_type == "skip" or _is_decline_text(text):
             state.pending_value = None
             state.pending_data = None
             state.mode = "asking"
             state.confirmed = False
+            return state
+
+        if intent_type in {"clarification", "confusion"}:
+            state.last_error = "If this is not correct, please tell me what to change."
+            return state
+
+        intent_value = intent.get("value")
+        if isinstance(intent_value, dict) and intent_value:
+            merged = dict(pending)
+            merged.update(intent_value)
+            state.pending_value = merged
+            state.pending_data = merged
+            state.last_error = "If this is not correct, please tell me what to change."
             return state
 
         state.last_error = "Please reply yes or no."
