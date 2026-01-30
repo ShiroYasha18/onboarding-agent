@@ -443,6 +443,7 @@ def generate_turn_reply(
             "CRITICAL: If 'Fields successfully updated' contains values that seem to be QUESTIONS (e.g. 'Should I...', 'Why...') or are clearly wrong/misinterpreted, you MUST identify them to be removed.\n"
             "CRITICAL: Treat any field already present in 'Current known data summary' as completed. Do NOT ask for it again or say you 'missed' it unless the user is clearly changing it or it appears in 'invalidated_fields'.\n"
             "CRITICAL: When you repeat any field value (like a hotel name, PAN, GSTIN, phone, email, address), you MUST echo it exactly as given in the context, without correcting spelling, casing, formatting or adding extra details. Do not \"fix\" or normalise user values.\n"
+            "CRITICAL: Never ask the user to confirm again values listed in 'Fields successfully updated just now'. Those are already confirmed; simply acknowledge them and move on to the next question(s). Do NOT use phrases like 'is that correct' or 'does that look right' for those fields.\n"
             "CRITICAL: Treat all context fields (including the hint) as background only. Do not copy any of them word-for-word; rewrite explanations in your own natural, conversational language.\n\n"
             f"Context:\n"
             f"- User's last message: '{user_message}'\n"
