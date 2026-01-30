@@ -208,6 +208,7 @@ EXTRACTION RULES:
 - If CURRENT STEP is a name/text field and the message also contains phone/email/address, extract only the name portion (not the other data).
 - If dates are mentioned, normalize them to YYYY-MM-DD if possible.
 - If confidence is low, set confidence below 0.6 but still return intent "answer" if you extracted something.
+ - For free-text fields (names, addresses, descriptions), keep the user's spelling and casing exactly as they wrote it. Do NOT correct typos or \"improve\" the value; just extract it as-is.
 
 EXAMPLES (follow the schema exactly):
 1)

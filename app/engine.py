@@ -316,6 +316,7 @@ def generate_turn_reply(
             "2. If the user's message includes a small personal detail or emotion, briefly acknowledge it.\n"
             "3. Ask clearly for confirmation or correction.\n"
             "Keep the reply to 1-2 sentences.\n"
+            "CRITICAL: When you mention any pending value (like a hotel name, PAN, GSTIN, phone, email, address), repeat it exactly as provided in 'Pending fields' without changing spelling, casing or formatting. Do NOT guess or \"correct\" it.\n"
             "Do not mention internal system details.\n\n"
             f"User message: {user_message!r}\n"
             f"Pending fields: {json.dumps(pending_fields_payload, ensure_ascii=False)}\n"
@@ -441,6 +442,7 @@ def generate_turn_reply(
             "CRITICAL: If the user seems confused, asks 'Why?', or says 'I don't understand', you MUST explain the reasoning behind the current step before asking again.\n"
             "CRITICAL: If 'Fields successfully updated' contains values that seem to be QUESTIONS (e.g. 'Should I...', 'Why...') or are clearly wrong/misinterpreted, you MUST identify them to be removed.\n"
             "CRITICAL: Treat any field already present in 'Current known data summary' as completed. Do NOT ask for it again or say you 'missed' it unless the user is clearly changing it or it appears in 'invalidated_fields'.\n"
+            "CRITICAL: When you repeat any field value (like a hotel name, PAN, GSTIN, phone, email, address), you MUST echo it exactly as given in the context, without correcting spelling, casing, formatting or adding extra details. Do not \"fix\" or normalise user values.\n"
             "CRITICAL: Treat all context fields (including the hint) as background only. Do not copy any of them word-for-word; rewrite explanations in your own natural, conversational language.\n\n"
             f"Context:\n"
             f"- User's last message: '{user_message}'\n"
@@ -669,17 +671,6 @@ def apply_intent(state: OnboardingState) -> OnboardingState:
             state.pending_data = merged
             pending = merged
 
-        if intent_type in {"clarification", "confusion"}:
-            state.last_error = "If this is not correct, please tell me what to change."
-            return state
-
-        if intent_type == "skip" or _is_decline_text(text):
-            state.pending_value = None
-            state.pending_data = None
-            state.mode = "asking"
-            state.confirmed = False
-            return state
-
         if _is_confirm_text(text) or intent_type == "answer":
             if not pending:
                 state.last_error = "There is nothing to confirm."
@@ -690,6 +681,17 @@ def apply_intent(state: OnboardingState) -> OnboardingState:
             state.pending_data = None
             state.confirmed = False
             state.mode = "asking"
+            return state
+
+        if intent_type in {"clarification", "confusion"}:
+            state.last_error = "If this is not correct, please tell me what to change."
+            return state
+
+        if intent_type == "skip" or _is_decline_text(text):
+            state.pending_value = None
+            state.pending_data = None
+            state.mode = "asking"
+            state.confirmed = False
             return state
 
         state.last_error = "Please reply yes or no."
