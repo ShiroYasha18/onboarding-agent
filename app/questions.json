@@ -7,11 +7,11 @@
       "id": "warehouse",
       "order": 1,
       "label": "Warehouse",
-      "prompt": "Which warehouse should this hotel belong to? (YPR/JPN)",
+      "prompt": "Which warehouse should this hotel belong to? (YPR – Malleshwaram / JPN – JP Nagar)",
       "type": "enum",
       "options": ["YPR", "JPN"],
       "required": true,
-      "reasoning": "Determines which facility handles the logistics and operations for this account."
+      "reasoning": "Determines which facility handles the logistics and operations for this account: YPR is the Malleshwaram warehouse and JPN is the JP Nagar warehouse."
     },
 
     {
@@ -21,7 +21,7 @@
       "prompt": "What’s the hotel name?",
       "type": "text",
       "required": true,
-      "reasoning": "Identifies the hotel in our system and on all reports."
+      "reasoning": "Official property name shown in all internal tools, invoices and operational reports. This is the anchor identity we use everywhere when talking about this hotel."
     },
 
     {
@@ -31,7 +31,7 @@
       "prompt": "What’s the contact phone number?",
       "type": "phone",
       "required": true,
-      "reasoning": "Primary number for urgent operational communication."
+      "reasoning": "Primary phone number for the hotel’s on-ground operations team or front office. Used for urgent escalations, delivery coordination and service issues when something breaks in day-to-day operations."
     },
 
     {
@@ -41,7 +41,7 @@
       "prompt": "What’s the contact email?",
       "type": "email",
       "required": true,
-      "reasoning": "Used for sending automated reports and invoices."
+      "reasoning": "Shared hotel-level email (front office, accounts or owner) used for sending invoices, performance reports, service notifications and any written communication that should be reusable over time."
     },
 
     {
@@ -52,7 +52,7 @@
       "type": "enum",
       "options": ["Active", "Inactive"],
       "required": true,
-      "reasoning": "Controls whether the hotel is currently active in our system."
+      "reasoning": "Controls whether the hotel is live for billing, pickups and deliveries in our system. Inactive hotels are fully configured but excluded from day-to-day operations and invoice generation."
     },
 
     {
@@ -63,7 +63,7 @@
       "type": "enum",
       "options": ["HOTEL", "HOSPITAL", "RESTAURANT", "CORPORATE", "OTHER"],
       "required": true,
-      "reasoning": "Classifies the client for reporting and tax purposes."
+      "reasoning": "Classifies what kind of institution this is (hotel, hospital, restaurant, corporate, other). Used to drive pricing patterns, reporting cuts and any business rules that differ by customer category."
     },
 
     {
@@ -73,7 +73,7 @@
       "prompt": "What’s the GSTIN number?",
       "type": "text",
       "required": true,
-      "reasoning": "Mandatory for tax compliance and generating valid GST invoices."
+      "reasoning": "Legal GST registration number of the customer entity. Mandatory for GST compliant invoicing, filings and for matching this account with statutory records during audits."
     },
 
     {
@@ -83,7 +83,7 @@
       "prompt": "What’s the PAN number?",
       "type": "text",
       "required": true,
-      "reasoning": "Required for income tax tracking and financial compliance."
+      "reasoning": "PAN of the legal entity that signs the agreement. Used for income tax records, TDS handling and linking invoices, collections and payouts to the correct legal entity."
     },
 
     {
@@ -93,7 +93,7 @@
       "prompt": "Billing address: address line 1?",
       "type": "text",
       "required": true,
-      "reasoning": "Primary billing location for invoice delivery."
+      "reasoning": "First line of the legal billing address for this customer. Appears on all invoices, statements and legal documents and is used to determine where the customer is legally located for billing."
     },
 
     {
@@ -103,7 +103,7 @@
       "prompt": "Billing address: address line 2? (optional — type skip to leave empty)",
       "type": "text",
       "optional": true,
-      "reasoning": "Additional address details for precise billing location."
+      "reasoning": "Optional second line of the billing address for building names, landmarks or floor information. Helps ensure invoices and any physical communication reach the exact billing location."
     },
 
     {
@@ -113,7 +113,7 @@
       "prompt": "Billing address: city?",
       "type": "text",
       "required": true,
-      "reasoning": "City for tax calculation and logistics planning."
+      "reasoning": "City of the billing address. Important for tax logic, regional reporting and understanding which market this customer belongs to."
     },
 
     {
@@ -123,7 +123,7 @@
       "prompt": "Billing address: state?",
       "type": "text",
       "required": true,
-      "reasoning": "State determines IGST vs SGST/CGST tax application."
+      "reasoning": "State of the billing address. Determines whether IGST or SGST/CGST apply and is critical for GST tax calculation, compliance and route-level reporting."
     },
 
     {
@@ -133,7 +133,7 @@
       "prompt": "Billing address: ZIP/postal code?",
       "type": "text",
       "required": true,
-      "reasoning": "Postal code for accurate mail delivery and logistics."
+      "reasoning": "ZIP or postal code of the billing address. Used by logistics, regional reporting and any physical communication or dispatch to locate the exact billing area."
     },
 
     {
@@ -144,7 +144,7 @@
       "type": "text",
       "default": "India",
       "optional": true,
-      "reasoning": "Country for international tax and legal compliance."
+      "reasoning": "Country of the billing entity (default India). Important for legal jurisdiction, international tax treatment and deciding if any cross-border rules apply."
     },
 
     {
@@ -155,7 +155,7 @@
       "type": "enum",
       "options": ["yes", "no"],
       "required": true,
-      "reasoning": "Saves time by copying billing details if shipping is identical."
+      "reasoning": "Indicates whether the place where we ship and pick up linen is exactly the same as the legal billing address. When yes, we can safely reuse billing details and simplify data entry and routing."
     },
 
     {
@@ -166,7 +166,7 @@
       "type": "text",
       "required": true,
       "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
-      "reasoning": "Physical location where linen is delivered and picked up."
+      "reasoning": "First line of the actual linen delivery and pickup location. Used by operations and routing teams to know exactly where vehicles should go for day-to-day service."
     },
 
     {
@@ -177,7 +177,7 @@
       "type": "text",
       "optional": true,
       "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
-      "reasoning": "Additional shipping address details."
+      "reasoning": "Optional second line of the shipping address for block, wing, floor or landmark information. Helps delivery teams find the exact service location quickly."
     },
 
     {
@@ -188,7 +188,7 @@
       "type": "text",
       "required": true,
       "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
-      "reasoning": "City for route planning and delivery logistics."
+      "reasoning": "City where linen is delivered and picked up. Used for route clustering, service region planning and understanding which operational hub should serve this property."
     },
 
     {
@@ -199,7 +199,7 @@
       "type": "text",
       "required": true,
       "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
-      "reasoning": "State for regulatory compliance in transport."
+      "reasoning": "State of the shipping location. Important for any movement related compliance and for understanding how this shipping point fits into our logistics network."
     },
 
     {
@@ -210,7 +210,7 @@
       "type": "text",
       "required": true,
       "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
-      "reasoning": "Postal code for assigning delivery routes."
+      "reasoning": "ZIP or postal code of the shipping location. Used to plan delivery routes, estimate travel times and group nearby customers for operational efficiency."
     },
 
     {
@@ -222,7 +222,7 @@
       "default": "India",
       "optional": true,
       "depends_on": { "id": "shipping_address.same_as_billing", "equals": "no" },
-      "reasoning": "Country for international shipping regulations."
+      "reasoning": "Country of the shipping location (default India). Relevant for international shipping rules and any operational decisions that differ by country."
     },
 
     {
@@ -232,7 +232,7 @@
       "prompt": "Who’s the primary contact person’s name?",
       "type": "text",
       "required": true,
-      "reasoning": "Name of the main point of contact for day-to-day operations."
+      "reasoning": "Full name of the primary operational contact at the hotel (housekeeping head, manager or similar). This is the person we speak to when something needs attention on a day-to-day basis."
     },
 
     {
@@ -242,7 +242,7 @@
       "prompt": "Primary contact phone number?",
       "type": "phone",
       "required": true,
-      "reasoning": "Direct line to the primary contact for quick resolution."
+      "reasoning": "Direct phone number of the primary operational contact. Used for urgent escalations, missed pickups, delays and any real-time coordination needed to keep service smooth."
     },
 
     {
@@ -252,7 +252,7 @@
       "prompt": "Primary contact email?",
       "type": "email",
       "required": true,
-      "reasoning": "Email for sending operational updates to the primary contact."
+      "reasoning": "Email address of the primary operational contact. Used for sharing visit summaries, operational alerts and any important communication that should reach the person owning daily linen operations."
     },
 
     {
@@ -263,7 +263,7 @@
       "type": "enum",
       "options": ["Rental Laundry", "Laundry"],
       "required": true,
-      "reasoning": "Defines the service model (Rental vs Customer-owned Linen)."
+      "reasoning": "Defines whether we are providing rental linen or only processing the customer’s own linen. This drives how we bill, how inventory is managed and how risks and damages are handled."
     },
 
     {
@@ -273,7 +273,7 @@
       "prompt": "Service start date? (YYYY-MM-DD)",
       "type": "date",
       "required": true,
-      "reasoning": "The date when billing and operations officially commence."
+      "reasoning": "Date from which the agreement becomes active operationally. Used as the start point for billing, SLA tracking and revenue recognition."
     },
 
     {
@@ -283,7 +283,7 @@
       "prompt": "Service end date? (YYYY-MM-DD)",
       "type": "date",
       "required": true,
-      "reasoning": "The date when the current contract term expires."
+      "reasoning": "Planned end date of the current agreement term. Used for renewal planning, forecasting and ensuring we do not continue service beyond the agreed period without an extension."
     },
 
     {
@@ -294,7 +294,7 @@
       "type": "enum",
       "options": ["Active", "Inactive"],
       "required": true,
-      "reasoning": "Tracks if the agreement is currently valid or expired."
+      "reasoning": "Shows whether the commercial agreement is currently active or not. Active means we should serve, bill and schedule; inactive means the account is configured but not in live use."
     },
 
     {
@@ -304,7 +304,7 @@
       "prompt": "Total rooms?",
       "type": "number",
       "required": true,
-      "reasoning": "Used to estimate linen volume and inventory requirements."
+      "reasoning": "Total number of rooms under this agreement. Used to size base inventory, estimate daily volume and sanity-check whether usage and billing patterns look reasonable."
     },
 
     {
@@ -315,7 +315,7 @@
       "type": "number",
       "default": 0,
       "optional": true,
-      "reasoning": "Helps forecast daily linen usage and load planning."
+      "reasoning": "Typical occupancy percentage for the property. Helps forecast how much linen will rotate daily and allows us to plan production loads and capacity more intelligently."
     },
 
     {
@@ -325,7 +325,7 @@
       "prompt": "Deposit amount?",
       "type": "number",
       "required": true,
-      "reasoning": "Security deposit held against linen inventory or damages."
+      "reasoning": "Amount of security deposit taken against linen inventory and potential damages. Used by finance to track exposure, refunds and risk on this account."
     },
 
     {
@@ -336,7 +336,7 @@
       "type": "enum",
       "options": ["15", "30"],
       "required": true,
-      "reasoning": "Number of days allowed for payment after invoice generation."
+      "reasoning": "Agreed credit period in days after invoice generation (for example 15 or 30). Drives due dates, dunning logic and how receivables are tracked for this customer."
     },
 
     {
@@ -347,7 +347,7 @@
       "type": "enum",
       "options": ["Daily", "Alternate"],
       "required": true,
-      "reasoning": "Schedule for delivery (Daily or Alternate) for route planning."
+      "reasoning": "High-level pattern for how often we deliver and pick up linen (daily or on alternate days). Used for route design, capacity planning and setting the customer’s expectation on frequency."
     },
 
     {
@@ -357,7 +357,7 @@
       "prompt": "Service frequency?",
       "type": "text",
       "required": true,
-      "reasoning": "Specific frequency details for customized service plans."
+      "reasoning": "Free-text description for any more detailed schedule or special rules (for example weekend-only service or custom pickup windows) that sit on top of the standard delivery pattern."
     },
 
     {
@@ -368,7 +368,7 @@
       "type": "enum",
       "options": ["15", "30"],
       "required": true,
-      "reasoning": "Frequency of invoice generation (e.g., every 15 or 30 days)."
+      "reasoning": "How often invoices are generated for this agreement (for example every 15 or 30 days). Used by billing to schedule runs and by finance to understand expected cash flow cadence."
     },
 
     {
@@ -379,7 +379,7 @@
       "type": "number",
       "default": 1,
       "optional": true,
-      "reasoning": "The day of the month when the billing cycle begins."
+      "reasoning": "Day of the month on which the billing cycle opens. Together with billing_end_day, defines the exact date window each invoice will cover."
     },
 
     {
@@ -390,7 +390,7 @@
       "type": "number",
       "default": 15,
       "optional": true,
-      "reasoning": "The day of the month when the billing cycle ends."
+      "reasoning": "Day of the month on which the billing cycle closes. Used to cut usage into periods that align with the customer’s accounting preferences."
     },
 
     {
@@ -401,7 +401,7 @@
       "type": "enum",
       "options": ["Fixed"],
       "required": true,
-      "reasoning": "Defines the billing methodology (e.g., Fixed pricing)."
+      "reasoning": "Defines the billing method (for example fixed monthly charges). Helps the system know how to interpret usage and what pricing logic to apply."
     },
 
     {
@@ -411,7 +411,7 @@
       "prompt": "Provide price list items as JSON array. Example: [{\"product_item\":\"Bedsheet\",\"quantity\":100,\"price\":12.5,\"service_type\":\"Washing\"}]",
       "type": "json",
       "required": true,
-      "reasoning": "List of items and their agreed prices for billing accuracy."
+      "reasoning": "Structured list of every linen item covered by this agreement including product name, quantities, prices and service type. This is the single source of truth for how we convert usage into invoices."
     },
 
     {
@@ -421,7 +421,7 @@
       "prompt": "Customer user: name?",
       "type": "text",
       "required": true,
-      "reasoning": "Name of the user account created for the customer portal."
+      "reasoning": "Name of the end user who will log into the customer portal. Used for greeting, access control and to clearly identify who owns this login on the customer side."
     },
 
     {
@@ -431,7 +431,7 @@
       "prompt": "Customer user: email?",
       "type": "email",
       "required": true,
-      "reasoning": "Login email for the customer portal."
+      "reasoning": "Email address used as the username for the customer portal. Also used for sending password resets, portal notifications and any account-related communication."
     },
 
     {
@@ -441,7 +441,7 @@
       "prompt": "Customer user: phone?",
       "type": "phone",
       "required": true,
-      "reasoning": "Contact number associated with the portal user account."
+      "reasoning": "Phone number of the portal user. Used for two-factor style verification, urgent follow-ups about portal activity and as an extra contact channel when there are access issues."
     },
 
     {
@@ -451,7 +451,7 @@
       "prompt": "Customer user: password?",
       "type": "text",
       "required": true,
-      "reasoning": "Secure password for accessing the customer portal."
+      "reasoning": "Initial password for the customer portal user. Used only at creation time and should typically be changed by the user; stored and handled following security best practices."
     },
 
     {
@@ -461,7 +461,7 @@
       "prompt": "Customer user: role?",
       "type": "text",
       "required": true,
-      "reasoning": "Permissions level assigned to this user in the portal."
+      "reasoning": "Role or permission level for this portal user (for example admin, viewer, operations). Drives what screens, actions and data they can access inside the customer portal."
     },
 
     {
@@ -472,7 +472,7 @@
       "type": "enum",
       "options": ["yes", "no"],
       "required": true,
-      "reasoning": "Decides if a dedicated inventory stock needs to be allocated."
+      "reasoning": "Captures whether this customer wants a dedicated stock pool or to share from a common pool. This decision affects how we allocate, reserve and track physical linen inventory."
     },
 
     {
@@ -483,7 +483,7 @@
       "type": "text",
       "required": true,
       "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" },
-      "reasoning": "Unique name to identify this specific inventory pool."
+      "reasoning": "Human-friendly name for the dedicated inventory pool (for example “Hotel A – Pool 1”). Used by operations and inventory control to refer to this pool in day-to-day decisions."
     },
 
     {
@@ -494,7 +494,7 @@
       "type": "text",
       "optional": true,
       "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" },
-      "reasoning": "Optional details describing the purpose of this inventory pool."
+      "reasoning": "Optional narrative about what this pool is for (for example room linen vs banquet linen). Helps operations understand how this pool should be used and any special handling."
     },
 
     {
@@ -505,7 +505,7 @@
       "type": "list",
       "required": true,
       "depends_on": { "id": "inventory_pool.want_pool", "equals": "yes" },
-      "reasoning": "List of products included in this specific inventory pool."
+      "reasoning": "List of product SKUs that belong to this inventory pool. Used to know exactly which items are reserved for this customer and for reconciling stock between warehouse and site."
     },
 
     {
@@ -515,7 +515,7 @@
       "prompt": "Reservation: customer name?",
       "type": "text",
       "required": true,
-      "reasoning": "Customer associated with this specific inventory reservation."
+      "reasoning": "Name of the customer for whom the inventory is being reserved. Used to tie the reservation back to the commercial agreement and to communicate clearly with the customer team."
     },
 
     {
@@ -526,7 +526,7 @@
       "type": "enum",
       "options": ["Fixed", "Flexible", "Rotational"],
       "required": true,
-      "reasoning": "Type of reservation (Fixed/Flexible) for stock management."
+      "reasoning": "Indicates how tightly inventory is locked for this customer (fixed, flexible or rotational). This drives how much stock can move between customers and how rigid the allocation is."
     },
 
     {
@@ -536,7 +536,7 @@
       "prompt": "Reservation: inventory pool name/id?",
       "type": "text",
       "required": true,
-      "reasoning": "Links the reservation to a specific inventory pool."
+      "reasoning": "Reference to which inventory pool this reservation draws from. Ensures the right physical stock is tied to this agreement and avoids double-counting inventory."
     },
 
     {
@@ -546,7 +546,7 @@
       "prompt": "Reservation start date? (YYYY-MM-DD)",
       "type": "date",
       "required": true,
-      "reasoning": "Date when the inventory reservation becomes active."
+      "reasoning": "Start date from which this reservation is considered active. Used to track when stock should be available and to align with agreement start dates."
     },
 
     {
@@ -556,7 +556,7 @@
       "prompt": "Reservation end date? (YYYY-MM-DD)",
       "type": "date",
       "required": true,
-      "reasoning": "Date when the inventory reservation expires."
+      "reasoning": "End date after which this reservation is no longer guaranteed. Used for freeing up or reallocating stock and for planning renewals."
     },
 
     {
@@ -566,7 +566,7 @@
       "prompt": "Reservation: total quantity?",
       "type": "number",
       "required": true,
-      "reasoning": "Total number of items reserved for this agreement."
+      "reasoning": "Total count of linen items reserved under this reservation. Used by planning and finance to understand exposure, usage capacity and how much stock is locked."
     },
 
     {
@@ -576,7 +576,7 @@
       "prompt": "Reservation: quantity with customer?",
       "type": "number",
       "required": true,
-      "reasoning": "Number of items currently in the customer's possession."
+      "reasoning": "How many reserved items are currently physically at the customer site. Key for tracking shrinkage, losses and balancing stock between customer and distribution center."
     },
 
     {
@@ -586,7 +586,7 @@
       "prompt": "Reservation: quantity with DC?",
       "type": "number",
       "required": true,
-      "reasoning": "Number of items currently at the distribution center."
+      "reasoning": "How many reserved items are currently at the distribution center. Used together with quantity_with_customer to get a complete picture of where stock is sitting at any point in time."
     }
   ]
 }

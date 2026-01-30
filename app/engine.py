@@ -255,14 +255,6 @@ def generate_turn_reply(
     error: str | None = None,
     intent_result: dict[str, Any] | None = None
 ) -> tuple[str, list[str]]:
-    if state.mode == "confirming" and state.pending_value:
-        pairs = []
-        for k, v in state.pending_value.items():
-            q = get_question(k) or {}
-            label = str(q.get("label") or k.split(".")[-1].replace("_", " "))
-            pairs.append(f"{label}: {v}")
-        summary = "; ".join(pairs) if pairs else ""
-        return f"I understood {summary}. Is that correct? (yes / no)", []
     effective_next = next_step_id or state.current_step
     question = get_question(effective_next) if effective_next else None
     
@@ -273,6 +265,91 @@ def generate_turn_reply(
 
     # Fallback logic if no LLM key
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+    if state.mode == "confirming" and state.pending_value:
+        pairs = []
+        pending_fields_payload: list[dict[str, Any]] = []
+        for k, v in state.pending_value.items():
+            q = get_question(k) or {}
+            label = str(q.get("label") or k.split(".")[-1].replace("_", " "))
+            pairs.append(f"{label}: {v}")
+            pending_fields_payload.append(
+                {
+                    "id": k,
+                    "label": label,
+                    "value": v,
+                    "reasoning": q.get("reasoning"),
+                    "type": q.get("type"),
+                }
+            )
+        summary = "; ".join(pairs) if pairs else ""
+
+        if not api_key:
+            return (f"I understood {summary}. Is that correct? (yes / no)", []) if summary else (
+                "Is this correct? (yes / no)",
+                [],
+            )
+
+        try:
+            from google import genai  # type: ignore
+        except Exception:
+            return (f"I understood {summary}. Is that correct? (yes / no)", []) if summary else (
+                "Is this correct? (yes / no)",
+                [],
+            )
+
+        client = genai.Client(api_key=api_key)
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+        known_data = {
+            k: v
+            for k, v in (state.data or {}).items()
+            if isinstance(k, str) and not k.startswith("_")
+        }
+        last_intent_type = intent_result.get("intent") if intent_result else None
+        last_intent_thought = intent_result.get("thought") if intent_result else None
+
+        confirm_prompt = (
+            "You are a friendly, intelligent onboarding assistant.\n"
+            "We have parsed the user's last message and inferred some field values, but we want to confirm them before saving.\n"
+            "Your job is to:\n"
+            "1. Briefly acknowledge what we understood (use the labels and values).\n"
+            "2. If the user's message includes a small personal detail or emotion, briefly acknowledge it.\n"
+            "3. Ask clearly for confirmation or correction.\n"
+            "Keep the reply to 1-2 sentences.\n"
+            "Do not mention internal system details.\n\n"
+            f"User message: {user_message!r}\n"
+            f"Pending fields: {json.dumps(pending_fields_payload, ensure_ascii=False)}\n"
+            f"Current known data: {json.dumps(known_data, ensure_ascii=False)}\n"
+            f"Intent type: {last_intent_type}\n"
+            f"Intent thought: {last_intent_thought or 'None'}\n\n"
+            "Output JSON with shape:\n"
+            "{ \"reply\": \"string\" }\n"
+        )
+
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=confirm_prompt,
+                config={"response_mime_type": "application/json"},
+            )
+            text = (resp.text or "").strip()
+            if text:
+                try:
+                    data = json.loads(text)
+                    reply = data.get("reply")
+                    if isinstance(reply, str) and reply.strip():
+                        return reply, []
+                except json.JSONDecodeError:
+                    if text:
+                        return text, []
+        except Exception:
+            pass
+
+        return (f"I understood {summary}. Is that correct? (yes / no)", []) if summary else (
+            "Is this correct? (yes / no)",
+            [],
+        )
+
     if not api_key:
         parts = []
         # Acknowledgement
@@ -344,11 +421,27 @@ def generate_turn_reply(
         qa_history = qa_store if isinstance(qa_store, list) else []
         recent_qa = qa_history[-5:]
 
+        phases_list: list[Any] = []
+        phase_map: dict[str, Any] = {}
+        phases_raw = state.data.get("_phases")
+        if isinstance(phases_raw, list):
+            phases_list = phases_raw
+        step_phase_raw = state.data.get("_step_phase")
+        if isinstance(step_phase_raw, dict):
+            phase_map = step_phase_raw
+        current_phase = None
+        if effective_next and isinstance(phase_map, dict):
+            cp = phase_map.get(effective_next)
+            if isinstance(cp, dict):
+                current_phase = cp
+
         llm_prompt = (
             "You are a friendly, intelligent onboarding assistant.\n"
-            "Your goal is to acknowledge what was just captured (if any), address any errors, and ask the next question(s) naturally.\n"
+            "Your goal is to acknowledge what was just captured (if any), optionally react briefly to personal details, address any errors, and ask the next question(s) naturally.\n"
             "CRITICAL: If the user seems confused, asks 'Why?', or says 'I don't understand', you MUST explain the reasoning behind the current step before asking again.\n"
-            "CRITICAL: If 'Fields successfully updated' contains values that seem to be QUESTIONS (e.g. 'Should I...', 'Why...') or are clearly wrong/misinterpreted, you MUST identify them to be removed.\n\n"
+            "CRITICAL: If 'Fields successfully updated' contains values that seem to be QUESTIONS (e.g. 'Should I...', 'Why...') or are clearly wrong/misinterpreted, you MUST identify them to be removed.\n"
+            "CRITICAL: Treat any field already present in 'Current known data summary' as completed. Do NOT ask for it again or say you 'missed' it unless the user is clearly changing it or it appears in 'invalidated_fields'.\n"
+            "CRITICAL: Treat all context fields (including the hint) as background only. Do not copy any of them word-for-word; rewrite explanations in your own natural, conversational language.\n\n"
             f"Context:\n"
             f"- User's last message: '{user_message}'\n"
             f"- Fields successfully updated just now: {json.dumps(diff, ensure_ascii=False)}\n"
@@ -358,20 +451,25 @@ def generate_turn_reply(
             f"- Hint for 'Why' we need the current step: {reason_hint}\n"
             f"- Intent analysis thought: {intent_thought or 'None'}\n"
             f"- Is clarification request: {is_clarification}\n"
-            f"- Last 5 Q&A pairs: {json.dumps(recent_qa, ensure_ascii=False)}\n\n"
+            f"- Last 5 Q&A pairs: {json.dumps(recent_qa, ensure_ascii=False)}\n"
+            f"- Current phase info: {json.dumps(current_phase or {}, ensure_ascii=False)}\n"
+            f"- All phases: {json.dumps(phases_list, ensure_ascii=False)}\n\n"
             "Instructions:\n"
             "1. Check 'Fields successfully updated'. If any value looks like a user question (e.g. starts with 'Should I', 'Why', 'What') or is clearly a misinterpretation of the user's intent, add its key to 'invalidated_fields'.\n"
             "2. If 'Fields successfully updated' is valid, acknowledge them briefly (e.g. 'Got the email', 'Noted the warehouse').\n"
             "3. If there is an Error, explain it helpfully and ask for correction.\n"
             "4. If 'Is clarification request' is true OR the user is confused:\n"
             "   - First, apologize for any confusion.\n"
-            "   - Explain specifically WHY we need this field using the hint provided or your own knowledge.\n"
+            "   - Explain specifically WHY we need this field, using the hint as context but paraphrasing it in your own words.\n"
+            "   - Keep the explanation short, concrete and human, not like documentation.\n"
             "   - Then, gently ask the question again.\n"
             "5. Ask the next required question from 'Upcoming steps'.\n"
             "   - INTELLIGENT GROUPING: You MAY ask for the next 2-3 steps TOGETHER if they are naturally related (e.g. name, email, phone).\n"
             "   - If the next step is complex or unrelated, just ask one.\n"
             "   - If asking multiple, make it clear what you need.\n"
-            "6. Keep the whole response conversational and under 3-4 sentences.\n\n"
+            "6. When starting a new phase or when the phase changes, briefly mention the phase name and what it covers (e.g. 'This is Phase 2: Addresses'). Keep it short.\n"
+            "7. If the user's last message includes a small personal detail or emotion (e.g. 'my wife chose that', 'this is my first hotel'), start by briefly acknowledging it in a warm, one-clause comment before moving on.\n"
+            "8. Keep the whole response conversational and under 3-4 sentences.\n\n"
             "Output JSON format:\n"
             "{\n"
             "  \"reply\": \"string\",\n"
@@ -424,21 +522,6 @@ def explain_step(state: OnboardingState, step_id: str, user_question: str) -> st
     label = str(question.get("label") or step_id)
     qtype = str(question.get("type") or "text")
     options = [str(o) for o in (question.get("options") or []) if o is not None]
-    
-    reasoning = question.get("reasoning", "")
-    
-    if reasoning:
-        base = reasoning
-        if qtype == "enum" and options:
-            return f"{base} Options: {' / '.join(options)}."
-        if qtype == "date":
-            return f"{base} Use YYYY-MM-DD."
-        if qtype == "email":
-            return f"{base} Example: name@company.com."
-        if qtype == "phone":
-            return f"{base} Example: +91 88123413123."
-        return base
-
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
         if qtype == "enum" and options:
@@ -462,6 +545,7 @@ def explain_step(state: OnboardingState, step_id: str, user_question: str) -> st
 
     client = genai.Client(api_key=api_key)
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+    reasoning = question.get("reasoning", "")
     payload = {
         "id": question.get("id"),
         "type": question.get("type"),
@@ -470,10 +554,13 @@ def explain_step(state: OnboardingState, step_id: str, user_question: str) -> st
         "optional": question.get("optional"),
         "label": question.get("label"),
         "prompt": question.get("prompt"),
+        "reasoning": reasoning,
     }
     llm_prompt = (
         "Explain the current onboarding question in 1-2 short sentences.\n"
         "Include a concrete example answer if helpful.\n"
+        "Use the 'reasoning' as background context, but do not copy it word-for-word.\n"
+        "Paraphrase it in friendly, natural language that feels like a human explanation.\n"
         "Do not ask for other fields.\n"
         "Do not mention internal system details.\n\n"
         f"question: {json.dumps(payload, ensure_ascii=False)}\n"
@@ -499,9 +586,51 @@ def _is_confirm_text(text: str) -> bool:
     lowered = (text or "").strip().lower()
     if not lowered:
         return False
-    if lowered in {"y", "yes", "ok", "okay", "confirm", "confirmed", "proceed", "submit", "done"}:
+    if lowered in {
+        "y",
+        "yes",
+        "yeah",
+        "yep",
+        "yup",
+        "sure",
+        "of course",
+        "ok",
+        "okay",
+        "alright",
+        "correct",
+        "right",
+        "sounds good",
+        "looks good",
+        "confirm",
+        "confirmed",
+        "proceed",
+        "submit",
+        "done",
+    }:
         return True
-    return bool(re.search(r"\b(confirm|confirmed|proceed|submit)\b", lowered))
+    if any(
+        phrase in lowered
+        for phrase in [
+            "yes i think",
+            "yeah i think",
+            "i think so",
+            "that is fine",
+            "thats fine",
+            "that's fine",
+            "that looks good",
+            "that is correct",
+            "that sounds right",
+            "go ahead",
+            "go for it",
+        ]
+    ):
+        return True
+    return bool(
+        re.search(
+            r"\b(yes|yeah|yep|yup|ok|okay|alright|sure|of course|correct|confirm|confirmed|proceed|submit|done)\b",
+            lowered,
+        )
+    )
 
 
 def _is_decline_text(text: str) -> bool:
@@ -527,31 +656,60 @@ def apply_intent(state: OnboardingState) -> OnboardingState:
     state.last_error = None
     intent = state.last_intent or {}
     intent_type = intent.get("intent")
-    
+
     if state.mode == "confirming":
         text = state.last_user_message or ""
-        
-        if _is_confirm_text(text):
-            state.confirmed = True
-        elif _is_decline_text(text):
+        intent_value = intent.get("value")
+        pending = state.pending_value if isinstance(state.pending_value, dict) else {}
+
+        if isinstance(intent_value, dict) and intent_value:
+            merged = dict(pending)
+            merged.update(intent_value)
+            state.pending_value = merged
+            state.pending_data = merged
+            pending = merged
+
+        if intent_type in {"clarification", "confusion"}:
+            state.last_error = "If this is not correct, please tell me what to change."
+            return state
+
+        if intent_type == "skip" or _is_decline_text(text):
             state.pending_value = None
             state.pending_data = None
             state.mode = "asking"
             state.confirmed = False
             return state
-        else:
-            state.last_error = "Please reply yes or no."
+
+        if _is_confirm_text(text) or intent_type == "answer":
+            if not pending:
+                state.last_error = "There is nothing to confirm."
+                return state
+            for step_id, val in pending.items():
+                state = _apply_answer_value(state, step_id, val)
+            state.pending_value = None
+            state.pending_data = None
+            state.confirmed = False
+            state.mode = "asking"
             return state
 
-    if state.confirmed and state.pending_value:
-        for step_id, val in state.pending_value.items():
-            state = _apply_answer_value(state, step_id, val)
-            
-        state.pending_value = None
-        state.pending_data = None
-        state.confirmed = False
-        state.mode = "asking"
+        state.last_error = "Please reply yes or no."
         return state
+    
+    if intent_type in {"correct_step", "correction"}:
+        val = intent.get("value")
+        if isinstance(val, dict):
+            state.pending_value = val
+            state.pending_data = val
+            state.mode = "confirming"
+            state.confirmed = False
+            return state
+
+    if intent_type == "go_to_step":
+        target = intent.get("step_id")
+        if target and target in QUESTIONS_BY_ID:
+            state.current_step = target
+            state.mode = "asking"
+            return state
 
     if intent_type == "answer":
         val = intent.get("value")
@@ -571,23 +729,7 @@ def apply_intent(state: OnboardingState) -> OnboardingState:
             state.confirmed = False
             return state
 
-    elif intent_type in {"correct_step", "correction"}:
-        val = intent.get("value")
-        if isinstance(val, dict):
-            state.pending_value = val
-            state.pending_data = val
-            state.mode = "confirming"
-            state.confirmed = False
-            return state
-
-    elif intent_type == "go_to_step":
-        target = intent.get("step_id")
-        if target and target in QUESTIONS_BY_ID:
-            state.current_step = target
-            state.mode = "asking"
-            return state
-    
-    elif intent_type in {"clarification", "confusion", "skip"}:
+    if intent_type in {"clarification", "confusion", "skip"}:
         step_id = state.current_step
         q = get_question(step_id) or {}
         required = bool(q.get("required"))

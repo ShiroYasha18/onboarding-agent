@@ -1,6 +1,7 @@
 import re
 
 from langgraph.graph import END, StateGraph
+from langgraph.checkpoint.memory import InMemorySaver
 
 from app import engine
 from app.engine import apply_intent, get_questions
@@ -317,84 +318,41 @@ def classify(state: OnboardingState) -> OnboardingState:
         step_definitions=_STEP_DEFS,
         pending_data=state.pending_data,
     )
-    state.last_intent = intent.model_dump()
-    state.intent_source = getattr(intent, "source", None)
+    result = intent.model_dump()
+    intent_type = result.get("intent")
+    original_type = intent_type
+    overridden = False
 
-    # Fallback if unknown OR if answer is empty for the current step
-    should_fallback = state.last_intent.get("intent") == "unknown"
-    if not should_fallback and state.last_intent.get("intent") == "answer":
-        val = state.last_intent.get("value")
-        # If value is None, empty dict, or dict without current step key
-        if not val or (isinstance(val, dict) and state.current_step not in val):
-            should_fallback = True
-
-    if should_fallback:
-        # Minimal, safe fallback that avoids defaulting to ANSWER:
-        tokens = _token_set(message)
-        text_lower = (message or "").lower()
-
-        q = engine.get_question(state.current_step)
-        if q:
-            # If it looks like a question → clarification
-            if _looks_like_question(message):
-                state.last_intent = {
-                    "intent": "clarification",
+    if state.current_step and state.current_step in _QUESTIONS_BY_ID:
+        q = _QUESTIONS_BY_ID[state.current_step]
+        if str(q.get("type")) == "enum":
+            options = [str(o) for o in (q.get("options") or []) if o is not None]
+            tokens = _token_set(message)
+            matches = [opt for opt in options if _option_matches_tokens(opt, tokens)]
+            if len(matches) == 1 and intent_type not in {"correction", "go_to_step", "skip"}:
+                picked = matches[0]
+                result = {
+                    "intent": "answer",
                     "step_id": state.current_step,
-                    "value": None,
-                    "confidence": 0.6,
-                    "thought": "Fallback detected a question."
+                    "value": {state.current_step: picked},
+                    "confidence": result.get("confidence") or 0.99,
+                    "thought": "Message clearly contains a single enum option; treating as answer.",
+                    "requires_confirmation": False,
                 }
-                state.intent_source = "fallback_safety"
-                return state
+                intent_type = "answer"
+                overridden = True
 
-            # If user says skip → skip
-            if re.search(r"\b(skip|n/?a|none|null)\b", text_lower):
-                state.last_intent = {
-                    "intent": "skip",
-                    "step_id": state.current_step,
-                    "value": None,
-                    "confidence": 0.9
-                }
-                state.intent_source = "fallback_safety"
-                return state
-
-            # Exact enum selection on current step only
-            if str(q.get("type")) == "enum":
-                options = [str(o) for o in (q.get("options") or [])]
-                matches = [opt for opt in options if _option_matches_tokens(opt, tokens)]
-                if len(matches) == 1:
-                    state.last_intent = {
-                        "intent": "answer",
-                        "step_id": state.current_step,
-                        "value": {state.current_step: matches[0]},
-                        "confidence": 0.8,
-                        "requires_confirmation": False
-                    }
-                    state.intent_source = "heuristic"
-                    return state
-
-            # Very short or unclear → confusion
-            is_very_short = len(message) < 4
-            is_common_word = text_lower in {"ok", "yes", "yep", "no", "na"}
-            if is_very_short and not is_common_word:
-                state.last_intent = {
-                    "intent": "confusion",
-                    "step_id": state.current_step,
-                    "value": None,
-                    "confidence": 0.4,
-                    "thought": "Fallback treated short/unclear text as confusion."
-                }
-                state.intent_source = "fallback_safety"
-                return state
-
-        # Default fallback
-        state.last_intent = {"intent": "unknown", "confidence": 0.0}
-        state.intent_source = "fallback"
+    state.last_intent = result
+    if overridden:
+        state.intent_source = "heuristic"
+    else:
+        state.intent_source = getattr(intent, "source", None)
     return state
 
 
 def mutate(state: OnboardingState) -> OnboardingState:
     return apply_intent(state)
+
 
 builder = StateGraph(OnboardingState)
 builder.add_node("classify", classify)
@@ -404,4 +362,5 @@ builder.set_entry_point("classify")
 builder.add_edge("classify", "mutate")
 builder.add_edge("mutate", END)
 
-app_graph = builder.compile()
+_checkpointer = InMemorySaver()
+app_graph = builder.compile(checkpointer=_checkpointer)

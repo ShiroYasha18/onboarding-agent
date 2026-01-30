@@ -161,6 +161,19 @@ GROUPS = _build_groups()
 _PHASE_BY_ID = {p["id"]: p for p in PHASES if isinstance(p, dict) and p.get("id")}
 
 
+_STEP_PHASE: dict[str, str] = {}
+for g in GROUPS:
+    phase_id = g.get("phase_id")
+    if not isinstance(phase_id, str) or not phase_id:
+        continue
+    step_ids = g.get("step_ids") or []
+    if not isinstance(step_ids, list):
+        continue
+    for sid in step_ids:
+        if isinstance(sid, str) and sid:
+            _STEP_PHASE[sid] = phase_id
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     index_path = _static_dir / "index.html"
@@ -367,6 +380,20 @@ def start(tenant_id: str = "default") -> dict[str, Any]:
     state = OnboardingState(tenant_id=tenant_id, session_id=session_id, current_step=first_step)
     state = engine.resolve_next_step(state)
 
+    phase_map: dict[str, Any] = {}
+    for sid, pid in _STEP_PHASE.items():
+        p = _PHASE_BY_ID.get(pid)
+        if not p:
+            continue
+        phase_map[sid] = {
+            "id": p.get("id"),
+            "label": p.get("label"),
+            "description": p.get("description"),
+            "order": p.get("order"),
+        }
+    state.data["_phases"] = PHASES
+    state.data["_step_phase"] = phase_map
+
     intro = _phase_intro()
     prompt = _prompt_for(state, state.current_step)
     reply = f"{intro}\n\n{prompt}" if intro else prompt
@@ -420,12 +447,16 @@ def chat(req: ChatRequest) -> dict[str, Any]:
     prev_step = state.current_step
     prev_mode = state.mode
 
-    next_state = app_graph.invoke(state)
+    next_state = app_graph.invoke(
+        state,
+        {"configurable": {"thread_id": req.session_id}},
+    )
     if not isinstance(next_state, OnboardingState):
         next_state = OnboardingState.model_validate(next_state)
 
     applied_steps = next_state.data.pop("_last_applied_steps", None)
     applied_labels: list[str] = []
+    applied_values: dict[str, Any] = {}
     if isinstance(applied_steps, list):
         for sid in applied_steps:
             if not isinstance(sid, str) or not sid:
@@ -434,6 +465,7 @@ def chat(req: ChatRequest) -> dict[str, Any]:
             label = str(q.get("label") or q.get("prompt") or sid).strip()
             if label and label not in applied_labels:
                 applied_labels.append(label)
+            applied_values[sid] = next_state.data.get(sid)
         if len(applied_labels) > 4:
             applied_labels = applied_labels[:4]
 
@@ -475,11 +507,15 @@ def chat(req: ChatRequest) -> dict[str, Any]:
         reply = f"{summary}\n\nReply 'confirm' to finish, or tell me what to change."
         invalidated = []
     else:
-        # Success case: We have updates (applied_labels) and a next step
-        # Construct a diff-like object for the generator
-        # Note: applied_labels are just strings, but generate_turn_reply expects a dict for keys
-        # We'll map labels back to a dummy dict for display purposes in the prompt
-        diff_context = {lbl: "updated" for lbl in applied_labels}
+        # Success case: We have updates and a next step
+        # Construct a diff-like object for the generator with actual values
+        diff_context = {}
+        for sid, value in applied_values.items():
+            q = QUESTIONS_BY_ID.get(sid, {})
+            label = str(q.get("label") or q.get("prompt") or sid).strip()
+            if not label:
+                continue
+            diff_context[label] = value
         
         reply, invalidated = engine.generate_turn_reply(
             next_state,
@@ -488,20 +524,6 @@ def chat(req: ChatRequest) -> dict[str, Any]:
             req.message or "",
             intent_result=intent_result
         )
-
-    # Append minimal intent debug info to reply for transparency
-    if intent_result:
-        try:
-            dbg_intent = str(intent_result.get("intent") or "unknown")
-            dbg_conf = intent_result.get("confidence")
-            dbg_conf_str = f"{float(dbg_conf):.2f}" if isinstance(dbg_conf, (int, float)) else "-"
-            dbg_src = str(next_state.intent_source or intent_result.get("source") or "none")
-            dbg_rc = "true" if bool(intent_result.get("requires_confirmation")) else "false"
-            dbg_step = str(intent_result.get("step_id") or next_state.current_step or "")
-            debug_line = f"[intent={dbg_intent} step={dbg_step} conf={dbg_conf_str} source={dbg_src} requires_confirmation={dbg_rc}]"
-            reply = f"{reply}\n\n{debug_line}".strip()
-        except Exception:
-            pass
 
     # Apply invalidations if any
     if invalidated:

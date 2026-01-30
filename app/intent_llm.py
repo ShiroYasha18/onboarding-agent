@@ -28,6 +28,7 @@ class Intent(BaseModel):
     source: Literal["llm", "heuristic", "ui", "none"] = "none"
 
 PROMPT = """
+
 You are an intent extraction engine for a guided hotel onboarding system.
 
 IMPORTANT RULES:
@@ -142,6 +143,12 @@ __KNOWN_DATA__
 PENDING CONFIRMATION DATA:
 __PENDING_DATA__
 
+PHASES:
+__PHASES__
+
+STEP PHASE MAP:
+__STEP_PHASE_MAP__
+
 USER MESSAGE:
 "__USER_MESSAGE__"
 
@@ -150,12 +157,16 @@ USER MESSAGE:
 EXTRACTION RULES:
 
 - Step 1: Determine intent first. If not "answer" or "correction", set "value": null.
-- Extract ONLY fields that belong to the relevant step.
+- Extract ONLY fields that belong to known steps.
 - If the user provides partial information, extract only that part.
 - If the user repeats an existing value, return it again.
-- If the user gives multiple fields in one sentence, extract all of them.
-- If the user provides multiple fields across different steps, return ALL of them in "value" as a map of step_id -> value.
-- If you can extract at least one value for any known step, return intent="answer" (not "unknown") unless the language clearly indicates a correction.
+- When intent="answer":
+  - Focus on the CURRENT STEP and other steps in the SAME PHASE as CURRENT STEP (based on STEP_PHASE_MAP).
+  - If the user gives multiple fields in one sentence for steps in the same phase, extract all of them into "value" as { "<step_id>": "<value>" }.
+  - If the user mentions fields from steps that belong to LATER phases than the current one, ignore those later-phase values for now and do NOT include them in "value". You may mention ignoring them in "thought".
+- When intent="correction":
+  - You may target any previously answered step (including earlier phases) if the language clearly indicates change/update.
+- If you can extract at least one value for any allowed step, return intent="answer" (not "unknown") unless the language clearly indicates a correction.
 - For phrases like "change/update/edit/correct X to Y" or "make X Y":
   - Use intent="correction".
   - Set "step_id" to the step that best matches X based on field labels and known_data keys.
@@ -168,6 +179,13 @@ EXTRACTION RULES:
   - Match case-insensitively (e.g. "ypr" -> "YPR").
   - If multiple options appear, return intent="unknown".
   - Never set the enum value to unrelated text.
+- If CURRENT STEP is a phone field:
+  - Extract only phone-like substrings (digits, optional +country code).
+  - If the message also contains an email address, map that to the email step_id (if present in KNOWN STEPS), but do NOT use it as the phone value.
+  - If no phone-like substring appears, do NOT guess a phone number from other text. Prefer "clarification" or "confusion" instead of a wrong phone value.
+- If CURRENT STEP is an email field:
+  - Extract only email-like substrings (text containing "@" and a domain).
+  - If the message also contains a phone number, you MAY also extract the phone into its step_id, but do NOT use the phone as the email value.
 - If CURRENT STEP is a name/text field:
   - If the user message is a question like "what?", "means?", "explain", or "I don't understand", return intent="clarification".
   - CRITICAL: If the input is a single word (e.g. "means", "what", "why", "que"), treat it as "clarification", NOT "answer".
@@ -198,62 +216,69 @@ USER MESSAGE: "ypr"
 { "intent": "answer", "step_id": "warehouse", "value": { "warehouse": "YPR" }, "confidence": 0.95, "thought": "User explicitly selected 'ypr' which matches an enum option.", "requires_confirmation": false }
 
 2)
+CURRENT STEP: warehouse (enum: YPR, JPN)
+USER MESSAGE: "uh how about YPR"
+{ "intent": "answer", "step_id": "warehouse", "value": { "warehouse": "YPR" }, "confidence": 0.95, "thought": "User casually chose YPR in a longer phrase. Extracting the enum choice.", "requires_confirmation": false }
+
+3)
 CURRENT STEP: hotel_basic_details.hotel_name (text)
 USER MESSAGE: "Hotel name is Marriott and contact is 88123413123 and marriot@gmail.com"
 { "intent": "answer", "step_id": "hotel_basic_details.hotel_name", "value": { "hotel_basic_details.hotel_name": "Marriott" }, "confidence": 0.85, "thought": "User provided hotel name 'Marriott' along with other contact details. Extracting only the hotel name for the current step.", "requires_confirmation": false }
 
-3)
+4)
 CURRENT STEP: warehouse (enum: YPR, JPN)
 USER MESSAGE: "YPR and my hotel name is Marriott"
 { "intent": "answer", "step_id": "warehouse", "value": { "warehouse": "YPR", "hotel_basic_details.hotel_name": "Marriott" }, "confidence": 0.9, "thought": "User provided warehouse selection 'YPR' and also voluntarily provided hotel name.", "requires_confirmation": false }
 
-4)
+5)
 CURRENT STEP: registration_details.gstin_number (text)
 USER MESSAGE: "29ABCDE1234F1Z5"
 { "intent": "answer", "step_id": "registration_details.gstin_number", "value": { "registration_details.gstin_number": "29ABCDE1234F1Z5" }, "confidence": 0.95, "thought": "User provided a valid GSTIN format.", "requires_confirmation": false }
 
-5)
+6)
 CURRENT STEP: hotel_basic_details.hotel_name (text)
 USER MESSAGE: "I dont have the full name .. YPR holdiay inn"
 { "intent": "answer", "step_id": "hotel_basic_details.hotel_name", "value": { "hotel_basic_details.hotel_name": "YPR holdiay inn" }, "confidence": 0.8, "thought": "User provided a partial hotel name and expressed uncertainty. Setting requires_confirmation to true.", "requires_confirmation": true }
 
-6)
+7)
 CURRENT STEP: hotel_basic_details.hotel_name (text)
 USER MESSAGE: "means"
 { "intent": "clarification", "step_id": "hotel_basic_details.hotel_name", "value": null, "confidence": 0.95, "thought": "User is asking for clarification ('means') instead of providing a name.", "requires_confirmation": false }
 
-7)
+8)
 CURRENT STEP: hotel_basic_details.hotel_name (text)
 PENDING CONFIRMATION DATA: { "hotel_basic_details.hotel_name": "YPR holdiay inn" }
 USER MESSAGE: "Yes, that's correct"
 { "intent": "answer", "step_id": "hotel_basic_details.hotel_name", "value": { "hotel_basic_details.hotel_name": "YPR holdiay inn" }, "confidence": 0.99, "thought": "User confirmed the pending value.", "requires_confirmation": false }
 
-8)
+9)
 CURRENT STEP: hotel_basic_details.hotel_name (text)
 USER MESSAGE: "I don't know"
 { "intent": "confusion", "step_id": "hotel_basic_details.hotel_name", "value": null, "confidence": 0.9, "thought": "User explicitly said they don't know.", "requires_confirmation": false }
 
-9)
+10)
 CURRENT STEP: hotel_basic_details.hotel_name (text)
 USER MESSAGE: "skip"
 { "intent": "skip", "step_id": "hotel_basic_details.hotel_name", "value": null, "confidence": 0.95, "thought": "User asked to skip the field.", "requires_confirmation": false }
 
-10)
+11)
 CURRENT STEP: hotel_basic_details.hotel_name (text)
 USER MESSAGE: "I don't know... YPR marriot"
 { "intent": "answer", "step_id": "hotel_basic_details.hotel_name", "value": { "hotel_basic_details.hotel_name": "YPR marriot" }, "confidence": 0.75, "thought": "User expressed uncertainty but provided a plausible hotel name. Extracting with confirmation required.", "requires_confirmation": true }
 
-11)
+12)
 CURRENT STEP: hotel_basic_details.contact_phone (phone)
 KNOWN DATA: { "hotel_basic_details.hotel_name": "jpn jpn" }
 USER MESSAGE: "oh can you change my hotel name to Marriot"
 { "intent": "correction", "step_id": "hotel_basic_details.hotel_name", "value": { "hotel_basic_details.hotel_name": "Marriot" }, "confidence": 0.85, "thought": "User explicitly asked to change the hotel name, which is a correction to an earlier answer, not a phone number.", "requires_confirmation": false }
 
-12)
+13)
 CURRENT STEP: hotel_basic_details.contact_phone (phone)
 KNOWN DATA: { "hotel_basic_details.hotel_name": "jpn jpn" }
 USER MESSAGE: "change hotel name to Marriot and email to info@marriot.com"
 { "intent": "correction", "step_id": "hotel_basic_details.hotel_name", "value": { "hotel_basic_details.hotel_name": "Marriot", "hotel_basic_details.contact_email": "info@marriot.com" }, "confidence": 0.88, "thought": "User is correcting multiple previously provided fields (hotel name and email) while being asked for phone. Treat as a correction for those fields only.", "requires_confirmation": false }
+
+I am making a hotel ongboarding agent I have a list of questions etc but can u make this prompt shaved and more precise right now the conversational does not feel naturally flowing . The user might greet etc greet back 
 """
 
 def extract_intent(
@@ -289,32 +314,6 @@ def extract_intent(
         step_definitions=step_definitions,
         pending_data=pending_data,
     )
-    needs_salvage = False
-    if intent is None:
-        needs_salvage = True
-    elif intent.intent == "unknown":
-        needs_salvage = True
-    elif intent.intent == "answer" and (not intent.value or not isinstance(intent.value, dict)):
-        needs_salvage = True
-
-    if needs_salvage:
-        candidate = _salvage_candidate(message)
-        if candidate and not _candidate_valid_for_type(candidate, qtype):
-            candidate = None
-        if candidate:
-            base_conf = intent.confidence if intent is not None else 0.5
-            conf = base_conf if 0.0 < base_conf < 1.0 else 0.5
-            if conf > 0.6:
-                conf = 0.6
-            return Intent(
-                intent="answer",
-                step_id=current_step,
-                value={current_step: candidate},
-                confidence=conf,
-                thought="Salvaged a plausible value from uncertain text.",
-                requires_confirmation=True,
-                source="heuristic",
-            )
 
     if intent is None:
         return Intent(intent="unknown", confidence=0.0, source="llm")
@@ -346,18 +345,28 @@ def _extract_with_gemini(
             "__KNOWN_DATA__", json.dumps({k: v for k, v in known_data.items() if not k.startswith("_")})
         )
         prompt = prompt.replace("__USER_MESSAGE__", message)
-        
+
         step_defs_str = "[]"
         if step_definitions:
-            step_defs_str = json.dumps(
-                [s for s in step_definitions if s["id"] == current_step or s["id"] in current_step_fields]
-            )
+            step_defs_str = json.dumps(step_definitions)
         prompt = prompt.replace("__STEP_DEFINITIONS__", step_defs_str)
-        
+
         pending_str = "None"
         if pending_data:
             pending_str = json.dumps(pending_data)
         prompt = prompt.replace("__PENDING_DATA__", pending_str)
+
+        phases_str = "[]"
+        phases_val = known_data.get("_phases")
+        if isinstance(phases_val, list):
+            phases_str = json.dumps(phases_val)
+        prompt = prompt.replace("__PHASES__", phases_str)
+
+        step_phase_str = "{}"
+        step_phase_val = known_data.get("_step_phase")
+        if isinstance(step_phase_val, dict):
+            step_phase_str = json.dumps(step_phase_val)
+        prompt = prompt.replace("__STEP_PHASE_MAP__", step_phase_str)
 
         response = client.models.generate_content(
             model=model,
