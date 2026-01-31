@@ -3,9 +3,15 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from app.state import OnboardingState
+
+QA_HISTORY_LIMIT = 20
+QA_CONTEXT_WINDOW = 8
+PROMPT_HISTORY_LIMIT = 6
+SKIP_LOG_LIMIT = 100
 
 with open("app/questions.json") as f:
     QUESTIONS: list[dict[str, Any]] = sorted(json.load(f)["questions"], key=lambda q: q["order"])
@@ -60,8 +66,8 @@ def _push_prompt_history(state: OnboardingState, step_id: str, prompt: str) -> N
     if history and history[-1] == text:
         return
     history.append(text)
-    if len(history) > 6:
-        del history[:-6]
+    if len(history) > PROMPT_HISTORY_LIMIT:
+        del history[:-PROMPT_HISTORY_LIMIT]
 
 
 def _push_qa_history(state: OnboardingState, step_id: str, question: str, answer: Any) -> None:
@@ -75,8 +81,33 @@ def _push_qa_history(state: OnboardingState, step_id: str, question: str, answer
         "answer": answer,
     }
     store.append(item)
-    if len(store) > 5:
-        del store[:-5]
+    if len(store) > QA_HISTORY_LIMIT:
+        del store[:-QA_HISTORY_LIMIT]
+
+
+def _push_skip_log(
+    state: OnboardingState,
+    step_id: str,
+    label: str,
+    *,
+    reason: str,
+    source: str,
+) -> None:
+    store = state.data.get("_skip_log")
+    if not isinstance(store, list):
+        store = []
+        state.data["_skip_log"] = store
+    entry = {
+        "step_id": str(step_id),
+        "label": str(label),
+        "reason": str(reason or ""),
+        "source": str(source or ""),
+        "user_message": state.last_user_message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    store.append(entry)
+    if len(store) > SKIP_LOG_LIMIT:
+        del store[:-SKIP_LOG_LIMIT]
 
 
 def _fallback_prompt(question: dict[str, Any], *, variant: int) -> str:
@@ -198,7 +229,7 @@ def prompt_for(state: OnboardingState, step_id: str) -> str:
     pending_data = state.pending_data if isinstance(state.pending_data, dict) else None
     qa_store = state.data.get("_qa_history")
     qa_history = qa_store if isinstance(qa_store, list) else []
-    recent_qa = qa_history[-5:]
+    recent_qa = qa_history[-QA_CONTEXT_WINDOW:]
     payload = {
         "id": question.get("id"),
         "type": question.get("type"),
@@ -420,7 +451,11 @@ def generate_turn_reply(
         is_clarification = intent_type in {"clarification", "confusion", "skip"} if intent_type else False
         qa_store = state.data.get("_qa_history")
         qa_history = qa_store if isinstance(qa_store, list) else []
-        recent_qa = qa_history[-5:]
+        recent_qa = qa_history[-QA_CONTEXT_WINDOW:]
+
+        skip_store = state.data.get("_skip_log")
+        skip_log = skip_store if isinstance(skip_store, list) else []
+        recent_skips = skip_log[-QA_CONTEXT_WINDOW:]
 
         phases_list: list[Any] = []
         phase_map: dict[str, Any] = {}
@@ -444,6 +479,7 @@ def generate_turn_reply(
             "CRITICAL: Treat any field already present in 'Current known data summary' as completed. Do NOT ask for it again or say you 'missed' it unless the user is clearly changing it or it appears in 'invalidated_fields'.\n"
             "CRITICAL: When you repeat any field value (like a hotel name, PAN, GSTIN, phone, email, address), you MUST echo it exactly as given in the context, without correcting spelling, casing, formatting or adding extra details. Do not \"fix\" or normalise user values.\n"
             "CRITICAL: Never ask the user to confirm again values listed in 'Fields successfully updated just now'. Those are already confirmed; simply acknowledge them and move on to the next question(s). Do NOT use phrases like 'is that correct' or 'does that look right' for those fields.\n"
+            "CRITICAL: Treat any field present in the 'Skip log' as intentionally skipped. Do not say it is missing or ask for it again unless the user clearly wants to provide or change it.\n"
             "CRITICAL: Treat all context fields (including the hint) as background only. Do not copy any of them word-for-word; rewrite explanations in your own natural, conversational language.\n\n"
             f"Context:\n"
             f"- User's last message: '{user_message}'\n"
@@ -454,7 +490,8 @@ def generate_turn_reply(
             f"- Hint for 'Why' we need the current step: {reason_hint}\n"
             f"- Intent analysis thought: {intent_thought or 'None'}\n"
             f"- Is clarification request: {is_clarification}\n"
-            f"- Last 5 Q&A pairs: {json.dumps(recent_qa, ensure_ascii=False)}\n"
+            f"- Last Q&A pairs: {json.dumps(recent_qa, ensure_ascii=False)}\n"
+            f"- Skip log: {json.dumps(recent_skips, ensure_ascii=False)}\n"
             f"- Current phase info: {json.dumps(current_phase or {}, ensure_ascii=False)}\n"
             f"- All phases: {json.dumps(phases_list, ensure_ascii=False)}\n\n"
             "Instructions:\n"
@@ -733,17 +770,24 @@ def apply_intent(state: OnboardingState) -> OnboardingState:
             state.confirmed = False
             return state
 
-    if intent_type in {"clarification", "confusion", "skip"}:
+    if intent_type in {"clarification", "confusion"}:
+        state.mode = "clarifying"
+        return state
+
+    if intent_type == "skip":
         step_id = state.current_step
         q = get_question(step_id) or {}
         required = bool(q.get("required"))
-        
-        if intent_type == "skip" and required:
+        if required:
             state.last_error = "This field is required."
             return state
-            
-        state.mode = "clarifying"
-        return state
+        label = str(q.get("label") or step_id or "")
+        reason = str(intent.get("thought") or "user_requested_skip")
+        _push_skip_log(state, step_id, label, reason=reason, source="user")
+        if step_id and step_id not in state.completed_steps:
+            state.completed_steps.append(step_id)
+        state.mode = "asking"
+        return resolve_next_step(state)
 
     # Special handling for Review step completion
     if state.current_step == "review" and not state.last_error:
@@ -860,6 +904,8 @@ def _mark_skipped(state: OnboardingState, question: dict[str, Any]) -> None:
     default = question.get("default")
     if default is not None and step_id not in state.data:
         state.data[step_id] = default
+    label = str(question.get("label") or step_id)
+    _push_skip_log(state, step_id, label, reason="auto_skipped_not_applicable", source="auto")
     state.completed_steps.append(step_id)
 
 
